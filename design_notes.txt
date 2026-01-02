@@ -1,0 +1,75 @@
+# GAIA.OS – Design Notes
+
+## Purpose:
+
+GAIA.OS is a modular, bottom-up simulation of an artificial society. It begins with basic building blocks like individuals and households, and allows scalable growth toward economic, social, and ecological complexity.
+
+## Design Philosophy:
+
+* Each file/module defines **internal logic only** (no external dependencies)
+* Interactions happen **only in main.py** or higher-level simulation control
+* Each class should be **testable independently** via `__main__`
+* Use **agent-based thinking** – agents own their behavior, state, and outputs
+
+## Current Building Blocks:
+
+1. **Member (member.py)**
+
+   * Basic human agent
+   * Tracks hunger, thirst, sleep, energy, health
+   * Has skills, memory, mood, and idea generation
+   * Can age and die based on age, starvation, or exhaustion
+   * No reference to household, farm, or world context
+
+2. **Household (household.py)**
+
+   * Contains multiple Members
+   * Manages private food/water storage
+   * Aggregates labor, ideas, and health
+   * Supports reproduction logic if health and food thresholds are met
+   * Tracks pregnancy progress and adds newborns
+   * Uses food directly (test case only – normally sourced via main.py)
+   * Does not call Farm or other systems directly
+
+3. **Farm (farm.py)**
+
+   * Accepts labor input
+   * Produces food based on efficiency curve
+   * Has internal storage
+   * No reference to households or who provided labor
+
+## Separation of Concerns:
+
+* `main.py` is responsible for wiring together all agent interactions
+* Example: Household gives labor → main.py sends labor to Farm → Farm produces food → main.py assigns food back
+
+## Progress Demonstrated:
+
+* Reproduction verified with population growth graph
+* Pregnancy logic includes health and food gating
+* Births visualized per day
+* Households operate independently with testable logic
+
+## Next Priorities:
+
+* Add death causes (old age, starvation, sickness)
+* Introduce population aging (members get older each day)
+* Add Market or communal storage system
+* Add Events or Weather class
+* Add learning or knowledge transmission (school, mentor)
+* Add economic agent roles: trader, builder, innovator
+
+## Reminders:
+
+* All simulation logic flows through main.py
+* Files should be cleanly importable and independently testable
+* Avoid circular dependencies
+* Favor composability over complexity
+
+## Keywords for Future Prompts:
+
+"modular logic only"
+"no cross-calling"
+"main.py handles interaction"
+"testable **main**"
+"agent owns state and action"
