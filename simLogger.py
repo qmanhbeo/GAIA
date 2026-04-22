@@ -1,8 +1,18 @@
 # simLogger.py
-import matplotlib.pyplot as plt
-import pandas as pd  # NEW
+import pandas as pd
 
 class SimulationLogger:
+    METRIC_SCHEMA = {
+        "day": {"type": "int", "description": "1-indexed simulation day"},
+        "total_food": {"type": "float", "description": "Food stored across all households"},
+        "total_labor": {"type": "float", "description": "Total labor contributed on the day"},
+        "population": {"type": "int", "description": "Alive members across all households"},
+        "total_water": {"type": "float", "description": "Water stored across all households"},
+        "rainfall": {"type": "float", "description": "Weather rainfall factor for the day"},
+        "drought_factor": {"type": "float", "description": "Farm productivity multiplier for the day"},
+        "avg_health": {"type": "float", "description": "Average health of living members"},
+    }
+
     def __init__(self):
         self.days = []
         self.total_food = []
@@ -27,9 +37,6 @@ class SimulationLogger:
             sum(m.health for m in alive_members) / len(alive_members) if alive_members else 0.0
         )
 
-    # keep your plot() if you like, but visualizer will do plotting
-
-    # NEW: structured outputs for visualizer
     def to_dict(self):
         return {
             "day": self.days,
@@ -41,6 +48,10 @@ class SimulationLogger:
             "drought_factor": self.drought_factor,
             "avg_health": self.avg_health,
         }
+
+    @classmethod
+    def metric_schema(cls):
+        return dict(cls.METRIC_SCHEMA)
 
     def to_dataframe(self):
         return pd.DataFrame(self.to_dict())

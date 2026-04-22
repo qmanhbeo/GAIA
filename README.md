@@ -102,6 +102,8 @@ In this framing, **GAIA is the environment**. Learning systems are intended to b
 ## Running the Simulation
 
 ### Setup
+GAIA currently requires **Python 3.10+**. The current implementation has been verified with **Python 3.10.20**.
+
 ```bash
 pip install -r requirements.txt
 ```

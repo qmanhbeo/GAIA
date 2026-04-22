@@ -1,56 +1,77 @@
-# assumptions.py
+from __future__ import annotations
 
-# === Labor Eligibility ===
-MIN_WORKING_AGE = 15
-MAX_WORKING_AGE = 60
+from dataclasses import asdict, dataclass
+from typing import Any
 
-# === Aging & Mortality ===
-MAX_AGE = 85
-DAILY_AGING = 1  # member ages 1 unit per day
 
-# === Hunger & Health ===
-HUNGER_INCREASE_PER_LABOR = 0.1
-HUNGER_THRESHOLD_FOR_DAMAGE = 1.0
-HEALTH_LOSS_FROM_STARVATION = 0.1
+@dataclass(frozen=True)
+class LegacyAssumptions:
+    # === Labor Eligibility ===
+    MIN_WORKING_AGE: int = 15
+    MAX_WORKING_AGE: int = 60
 
-# === Feeding ===
-FOOD_REQUIRED_PER_MEMBER_PER_DAY = 1.0
-FEED_ALL_OR_NONE = True  # if False, partial feeding logic can be implemented
+    # === Aging & Mortality ===
+    MAX_AGE: int = 85
+    DAILY_AGING: int = 1
 
-# === Reproduction ===
-REPRODUCTION_MIN_MEMBERS = 2
-REPRODUCTION_HUNGER_LIMIT = 0.5
-REPRODUCTION_CHANCE = 0.5  # 50% chance per eligible household per day
+    # === Hunger & Health ===
+    HUNGER_INCREASE_PER_LABOR: float = 0.1
+    HUNGER_THRESHOLD_FOR_DAMAGE: float = 1.0
+    HEALTH_LOSS_FROM_STARVATION: float = 0.1
 
-# === Farm Output ===
-FARM_LABOR_NEEDED = 3.0  # labor needed to produce base output
-FARM_BASE_OUTPUT = 10.0  # base units of food per day
-FARM_SURPLUS_EFFICIENCY = 0.5  # conversion rate of surplus labor to extra food
+    # === Feeding ===
+    FOOD_REQUIRED_PER_MEMBER_PER_DAY: float = 1.0
+    FEED_ALL_OR_NONE: bool = True
 
-# === Food Distribution ===
-EQUAL_DISTRIBUTION = True  # food is split evenly across all households
+    # === Reproduction ===
+    REPRODUCTION_MIN_MEMBERS: int = 2
+    REPRODUCTION_HUNGER_LIMIT: float = 0.5
+    REPRODUCTION_CHANCE: float = 0.5
 
-# === Hydration ===
-WATER_REQUIRED_PER_MEMBER_PER_DAY = 1.0
-DAILY_HYDRATION_DECAY = 0.1
-DEHYDRATION_THRESHOLD = 0.3
-HEALTH_LOSS_FROM_DEHYDRATION = 0.1
+    # === Farm Output ===
+    FARM_LABOR_NEEDED: float = 3.0
+    FARM_BASE_OUTPUT: float = 10.0
+    FARM_SURPLUS_EFFICIENCY: float = 0.5
 
-# === Weather System ===
-BASE_RAINFALL = 0.6            # baseline rainfall factor (0 to 1)
-RAIN_AMPLITUDE = 0.4           # seasonal oscillation strength
-RAIN_CYCLE_DAYS = 30           # wet–dry cycle in days
+    # === Food Distribution ===
+    EQUAL_DISTRIBUTION: bool = True
 
-BASE_DROUGHT = 1.0             # normal crop productivity multiplier
-DROUGHT_AMPLITUDE = 0.3        # how much drought fluctuates
+    # === Hydration ===
+    WATER_REQUIRED_PER_MEMBER_PER_DAY: float = 1.0
+    DAILY_HYDRATION_DECAY: float = 0.1
+    DEHYDRATION_THRESHOLD: float = 0.3
+    HEALTH_LOSS_FROM_DEHYDRATION: float = 0.1
 
-STORM_PROBABILITY = 0.02       # 2% chance of destructive storm per day
+    # === Weather System ===
+    BASE_RAINFALL: float = 0.6
+    RAIN_AMPLITUDE: float = 0.4
+    RAIN_CYCLE_DAYS: int = 30
+    BASE_DROUGHT: float = 1.0
+    DROUGHT_AMPLITUDE: float = 0.3
+    STORM_PROBABILITY: float = 0.02
 
-# === Weather Randomization Parameters ===
-# Multiplier on seasonal amplitude: pick uniformly between these
-RAIN_AMP_FACTOR_RANGE     = (0.8, 1.2)
-# Phase shift, in cycles (± fraction of a full sine wave)
-RAIN_PHASE_SHIFT_RANGE    = (-0.25, 0.25)
-# Day-to-day noise added to rainfall and drought
-RAIN_NOISE_RANGE          = (-0.05, 0.05)
-DROUGHT_NOISE_RANGE       = (-0.05, 0.05)
+    # === Weather Randomization Parameters ===
+    RAIN_AMP_FACTOR_RANGE: tuple[float, float] = (0.8, 1.2)
+    RAIN_PHASE_SHIFT_RANGE: tuple[float, float] = (-0.25, 0.25)
+    RAIN_NOISE_RANGE: tuple[float, float] = (-0.05, 0.05)
+    DROUGHT_NOISE_RANGE: tuple[float, float] = (-0.05, 0.05)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "LegacyAssumptions":
+        return cls(**payload)
+
+
+DEFAULT_LEGACY_ASSUMPTIONS = LegacyAssumptions()
+
+
+def apply_legacy_assumptions(values: LegacyAssumptions | dict[str, Any]) -> LegacyAssumptions:
+    resolved = values if isinstance(values, LegacyAssumptions) else LegacyAssumptions.from_dict(values)
+    for name, value in resolved.to_dict().items():
+        globals()[name] = value
+    return resolved
+
+
+apply_legacy_assumptions(DEFAULT_LEGACY_ASSUMPTIONS)

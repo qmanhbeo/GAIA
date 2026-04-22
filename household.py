@@ -1,13 +1,7 @@
 from member import Member
 import random
-from assumptions import (
-    FOOD_REQUIRED_PER_MEMBER_PER_DAY,
-    FEED_ALL_OR_NONE,
-    REPRODUCTION_MIN_MEMBERS,
-    REPRODUCTION_HUNGER_LIMIT,
-    REPRODUCTION_CHANCE,
-    WATER_REQUIRED_PER_MEMBER_PER_DAY,
-)
+
+import assumptions
 
 class Household:
     def __init__(self, name=None, num_members=3):
@@ -18,37 +12,37 @@ class Household:
 
     def feed(self):
         alive = [m for m in self.members if m.is_alive()]
-        total_needed = len(alive) * FOOD_REQUIRED_PER_MEMBER_PER_DAY
+        total_needed = len(alive) * assumptions.FOOD_REQUIRED_PER_MEMBER_PER_DAY
 
-        if FEED_ALL_OR_NONE and self.food < total_needed:
+        if assumptions.FEED_ALL_OR_NONE and self.food < total_needed:
             return  # not enough food to feed everyone
 
         for m in alive:
-            m.consume(food=FOOD_REQUIRED_PER_MEMBER_PER_DAY)
+            m.consume(food=assumptions.FOOD_REQUIRED_PER_MEMBER_PER_DAY)
 
         self.food -= total_needed
 
     def hydrate(self):
         alive = [m for m in self.members if m.is_alive()]
-        total_needed = len(alive) * WATER_REQUIRED_PER_MEMBER_PER_DAY
+        total_needed = len(alive) * assumptions.WATER_REQUIRED_PER_MEMBER_PER_DAY
 
-        if FEED_ALL_OR_NONE and self.water < total_needed:
+        if assumptions.FEED_ALL_OR_NONE and self.water < total_needed:
             return  # not enough water to hydrate everyone
 
         for m in alive:
-            m.drink(WATER_REQUIRED_PER_MEMBER_PER_DAY)
+            m.drink(assumptions.WATER_REQUIRED_PER_MEMBER_PER_DAY)
 
         self.water -= total_needed
 
     def maybe_reproduce(self):
         alive = [m for m in self.members if m.is_alive()]
-        if len(alive) < REPRODUCTION_MIN_MEMBERS:
+        if len(alive) < assumptions.REPRODUCTION_MIN_MEMBERS:
             return
 
-        if any(m.hunger >= REPRODUCTION_HUNGER_LIMIT for m in alive):
+        if any(m.hunger >= assumptions.REPRODUCTION_HUNGER_LIMIT for m in alive):
             return  # at least one member is too hungry
 
-        if random.random() < REPRODUCTION_CHANCE:
+        if random.random() < assumptions.REPRODUCTION_CHANCE:
             baby = Member(age=0)
             self.members.append(baby)
             #print(f"👶 {self.name} has a new baby: {baby.name}")

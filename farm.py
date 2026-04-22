@@ -1,14 +1,10 @@
-from assumptions import (
-    FARM_LABOR_NEEDED,
-    FARM_BASE_OUTPUT,
-    FARM_SURPLUS_EFFICIENCY,
-)
+import assumptions
 
 class Farm:
     def __init__(self, name="Farm"):
         self.name = name
-        self.labor_needed = FARM_LABOR_NEEDED
-        self.base_output = FARM_BASE_OUTPUT
+        self.labor_needed = assumptions.FARM_LABOR_NEEDED
+        self.base_output = assumptions.FARM_BASE_OUTPUT
         self.storage = 0.0
 
     def run_day(self, labor_input, drought_factor=1.0):  # 🌦️ Add drought_factor
@@ -18,7 +14,7 @@ class Farm:
             produced = self.base_output * (labor_input / self.labor_needed)
         else:
             surplus = labor_input - self.labor_needed
-            produced = self.base_output + (FARM_SURPLUS_EFFICIENCY * surplus)
+            produced = self.base_output + (assumptions.FARM_SURPLUS_EFFICIENCY * surplus)
 
         produced *= drought_factor  # 🌾 Scale final output
         self.storage += produced

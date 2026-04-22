@@ -29,6 +29,14 @@ def call_main_direct(days: int, seed: int, households: int, members: int):
     try:
         import importlib
         main = importlib.import_module("main")
+        if hasattr(main, "run_simulation_artifact"):
+            artifact = main.run_simulation_artifact(
+                days=days,
+                seed=seed,
+                num_households=households,
+                members_per_household=members
+            )
+            return artifact.to_dict() if hasattr(artifact, "to_dict") else artifact
         if hasattr(main, "run_simulation"):
             return main.run_simulation(
                 days=days,
@@ -50,6 +58,7 @@ def call_main_subprocess(days: int, seed: int, households: int, members: int, ou
         "--seed", str(seed),
         "--households", str(households),
         "--members", str(members),
+        "--artifact",
         "--out", out_path
     ]
     subprocess.run(cmd, check=True)
@@ -61,6 +70,13 @@ def normalize_to_df(results):
     """Convert results into a DataFrame with 'day' as index."""
     if results is None:
         return None
+    if hasattr(results, "to_dataframe"):
+        return results.to_dataframe()
+    if isinstance(results, dict) and "time_series" in results:
+        df = pd.DataFrame(results["time_series"])
+        if "day" in df.columns:
+            df = df.sort_values("day").set_index("day")
+        return df
     if isinstance(results, pd.DataFrame):
         df = results.copy()
     elif isinstance(results, list):
@@ -116,6 +132,10 @@ if run_btn:
         st.stop()
 
     st.success(f"Simulation finished ✅ (Seed = {seed})")
+    if isinstance(results, dict) and "metadata" in results:
+        metadata = results["metadata"]
+        st.write(f"**Mode:** {metadata.get('mode', 'unknown')}")
+        st.write(f"**Engine:** {metadata.get('engine_version', 'unknown')}")
     st.write(f"**Initial population:** {households * members} people")
     st.dataframe(df.head(20))
 

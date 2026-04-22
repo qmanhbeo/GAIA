@@ -1,15 +1,7 @@
 import random
 import uuid
-from assumptions import (
-    DAILY_AGING,
-    MAX_AGE,
-    HUNGER_INCREASE_PER_LABOR,
-    HUNGER_THRESHOLD_FOR_DAMAGE,
-    HEALTH_LOSS_FROM_STARVATION,
-    DAILY_HYDRATION_DECAY,
-    DEHYDRATION_THRESHOLD,
-    HEALTH_LOSS_FROM_DEHYDRATION,
-)
+
+import assumptions
 
 class Member:
     def __init__(self, name=None, age=None, gender=None):
@@ -29,7 +21,7 @@ class Member:
         """Performs labor and increases hunger"""
         if not self.is_alive():
             return 0
-        self.hunger += HUNGER_INCREASE_PER_LABOR
+        self.hunger += assumptions.HUNGER_INCREASE_PER_LABOR
         return round(self.health, 2)
 
     def consume(self, food=1.0):
@@ -42,20 +34,20 @@ class Member:
 
     def dehydrate(self):
         """Hydration decay and health penalty from dehydration"""
-        self.hydration -= DAILY_HYDRATION_DECAY
-        if self.hydration < DEHYDRATION_THRESHOLD:
-            self.health -= HEALTH_LOSS_FROM_DEHYDRATION
+        self.hydration -= assumptions.DAILY_HYDRATION_DECAY
+        if self.hydration < assumptions.DEHYDRATION_THRESHOLD:
+            self.health -= assumptions.HEALTH_LOSS_FROM_DEHYDRATION
         if self.health < 0:
             self.health = 0
 
     def deteriorate(self):
         """Aging and hunger-related health decay"""
-        self.age += DAILY_AGING
-        if self.age >= MAX_AGE:
+        self.age += assumptions.DAILY_AGING
+        if self.age >= assumptions.MAX_AGE:
             self.health = 0
 
-        if self.hunger > HUNGER_THRESHOLD_FOR_DAMAGE:
-            self.health -= HEALTH_LOSS_FROM_STARVATION
+        if self.hunger > assumptions.HUNGER_THRESHOLD_FOR_DAMAGE:
+            self.health -= assumptions.HEALTH_LOSS_FROM_STARVATION
 
         self.dehydrate()  # now includes hydration decay
 
