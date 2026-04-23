@@ -1,0 +1,86 @@
+{
+  "map": {
+    "tilesWide": 40,
+    "tilesHigh": 40,
+    "tileSize": 16,
+    "pixelWidth": 640,
+    "pixelHeight": 640
+  },
+  "buildings": [
+    {
+      "id": "library",
+      "label": "Library",
+      "prompt": "Press E to enter the Library",
+      "x": 128,
+      "y": 112,
+      "width": 88,
+      "height": 72,
+      "colorHex": "#5d462d"
+    },
+    {
+      "id": "workshop",
+      "label": "Workshop",
+      "prompt": "Press E to enter the Workshop",
+      "x": 512,
+      "y": 112,
+      "width": 88,
+      "height": 72,
+      "colorHex": "#76471f"
+    },
+    {
+      "id": "tavern",
+      "label": "Tavern",
+      "prompt": "Press E to enter the Tavern",
+      "x": 128,
+      "y": 496,
+      "width": 88,
+      "height": 72,
+      "colorHex": "#6f3521"
+    },
+    {
+      "id": "post-office",
+      "label": "Post Office",
+      "prompt": "Press E to enter the Post Office",
+      "x": 512,
+      "y": 496,
+      "width": 88,
+      "height": 72,
+      "colorHex": "#8a4f24"
+    }
+  ],
+  "npcs": [
+    {
+      "id": "alex",
+      "name": "Alex",
+      "x": 148,
+      "y": 176,
+      "tintHex": "#8bb8ff",
+      "dialogueLines": [
+        "Manh keeps leaving half the village in draft mode.",
+        "The Library is where the serious scrolls live."
+      ]
+    },
+    {
+      "id": "adam",
+      "name": "Adam",
+      "x": 492,
+      "y": 180,
+      "tintHex": "#97d78b",
+      "dialogueLines": [
+        "The Workshop is the right door if you want the built things.",
+        "Every good prototype in this town starts a little rough."
+      ]
+    },
+    {
+      "id": "avery",
+      "name": "Avery",
+      "x": 320,
+      "y": 360,
+      "tintHex": "#f7c96b",
+      "dialogueLines": [
+        "The campfire is still the center of the whole world here.",
+        "Walk around first. The village makes more sense once you feel the distances."
+      ]
+    }
+  ]
+}

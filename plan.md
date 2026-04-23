@@ -9,8 +9,37 @@ Defaults locked for this roadmap:
 - **Primary acting unit:** **individual members**
 - **Baseline institution:** **commons + queue**
 - **Primary goal:** **research lab**, not game-first polish
-- **Runtime stack:** keep the current **pure Python + Streamlit** base for core simulation and observability
+- **Simulation stack:** custom **Python core**
+- **Research console:** **Streamlit**
+- **Future 2D renderer:** **PixiJS** in the browser once the spatial world exists
+- **RL interfaces later:** **Gymnasium** first, **PettingZoo** if the environment is exposed as a true multi-agent API
 - **RL timing:** **defer RL** until the environment has real scarcity, contention, topology, and measurable tradeoffs
+
+Additional stack decisions:
+- **Do not** use Streamlit as the permanent game surface
+- **Do not** adopt Mesa as the core architecture
+- **Do not** target Godot unless the project pivots toward a full game product
+
+## Immediate Priority
+
+Before deeper economics work, GAIA should produce a **first visible 2D world** that can be watched tick by tick.
+
+Reasoning:
+- spatial intuition is more valuable right now than further extending the centralized allocator
+- visible movement will expose design flaws earlier than abstract charts
+- rules and institutions will be easier to evaluate after agents can be seen moving through space
+
+This means the next implementation target is a **thin vertical slice**, not the full v0.3 economy:
+- fixed 2D tile grid
+- one home location
+- one food node
+- one water node
+- agents with `(x, y)` positions
+- simple nearest-need movement
+- visible per-agent stats
+- live stepping and replay in the UI
+
+The goal of this slice is legibility, not realism.
 
 ## Key Architectural Changes
 
@@ -120,7 +149,22 @@ Acceptance criteria:
 - seeded runs produce repeatable metric series
 - future versions can be compared against v0.2 on shared metrics
 
-### Phase 1: Introduce spatial world primitives
+### Phase 1A: First Visible 2D World
+- [x] Add a fixed tile grid with simple rendering-friendly state
+- [x] Give agents and resource nodes `(x, y)` coordinates
+- [x] Add one household/home location, one food node, and one water node to a simple scenario
+- [x] Add a minimal movement rule: agents move one step per tick toward the highest-priority reachable need target
+- [x] Expose live stepping, auto-run, and replay in the UI
+- [x] Show per-agent stats in the UI while the world is running
+
+Acceptance criteria:
+- you can watch agents move on a 2D grid
+- agent locations update every tick
+- at least food and water seeking are visible in the movement pattern
+- the UI can step the world slowly enough for human inspection
+- this slice is usable for behavioral intuition even if institutions and advanced logic are still absent
+
+### Phase 1B: Spatial world primitives
 - [ ] Add a tile grid abstraction with coordinates, terrain types, movement costs, and occupancy rules
 - [ ] Give agents, households, and nodes positions in the world
 - [ ] Add pathfinding or shortest-path movement cost calculation on the grid
@@ -243,7 +287,7 @@ These interfaces should be considered part of the new contract and designed deli
 - `run_simulation(config)` should accept structured config, not only CLI scalars
 - simulation output should include both time-series metrics and optional spatial snapshots
 - scenario definition format should include map layout, node placement, population, and institution
-- the visualizer should accept recorded run artifacts, not only live-run results
+- the visualizer should support both live stepping and recorded run artifacts
 - institutions must be pluggable policies with a stable access-resolution interface
 - planner/RL hooks must be optional and isolated from core agent decision logic
 
@@ -290,5 +334,6 @@ CLI expectations:
 - The baseline economy is **non-price, commons-based, and queue-mediated**
 - No markets, money, ownership, or barter are required before the spatial model is working
 - RL is out of scope until topology, contention, and delayed production are implemented
-- Streamlit remains the primary visualization surface until the lab needs exceed it
+- Streamlit remains the primary **lab console** until the spatial viewer needs justify a separate client
+- PixiJS is the intended browser renderer once live 2D visualization outgrows Streamlit
 - The legacy v0.2 mode remains available for comparison until the new model fully supersedes it

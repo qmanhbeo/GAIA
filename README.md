@@ -99,6 +99,79 @@ In this framing, **GAIA is the environment**. Learning systems are intended to b
 
 ---
 
+## Stack Direction
+
+GAIA is being built as a **Python-first simulation lab**, not as a traditional game-engine project.
+
+The intended stack is:
+
+- **Simulation core:** custom Python engine
+- **Research console:** Streamlit
+- **Future 2D world viewer:** PixiJS in the browser
+- **RL interfaces later:** Gymnasium first, PettingZoo if the environment is later exposed as a true multi-agent API
+
+What this means in practice:
+
+- **Streamlit is the experiment console**, not the permanent game surface.
+- Streamlit is a good fit for controls, charts, replay, snapshots, and debugging.
+- Streamlit is **not** the ideal long-term renderer for a continuously updating spatial world with many moving agents.
+- When the spatial model becomes real, the intended direction is to keep Streamlit for lab workflows and add a separate browser-based 2D renderer.
+
+Non-default decisions:
+
+- **Mesa** is a useful reference for agent-based modeling, but it is **not** the planned core architecture for GAIA.
+- **Godot** is not the current target stack. It becomes relevant only if GAIA shifts from a research lab toward a full game product.
+
+---
+
+## Visualization Status
+
+GAIA is currently **visualizable**, but not yet **playable** as a 2D world.
+
+What exists today:
+
+- a working Python simulation engine
+- a Streamlit dashboard for interactive runs
+- post-run charts and metrics
+- structured run artifacts with metadata, time series, final state, and snapshots
+
+What does **not** exist yet:
+
+- a tile grid or map
+- agent coordinates
+- terrain movement or pathfinding
+- a live world view with moving agents
+- in-world interaction such as placing resources or watching queues form on a map
+
+The current dashboard is therefore an **experiment console**, not a game client.
+
+---
+
+## Immediate Build Priority
+
+The next major implementation target is **not** the full non-price economy. It is the **first visible 2D spatial prototype**.
+
+Why:
+
+- seeing agents move through space is expected to produce better intuition than extending the current non-spatial allocator
+- early spatial visualization will make later rule and institution changes easier to reason about
+- distance, access cost, and movement are more important to validate early than advanced policy or RL logic
+
+The first useful visible slice should be intentionally thin:
+
+- a fixed 2D tile grid
+- one home location
+- one food node
+- one water node
+- agents with `(x, y)` positions
+- simple tick-by-tick movement
+- simple visible needs and stats
+- a live view that shows agents moving before deeper economics are added
+
+This is the shortest path from the current prototype to something you can actually watch and reason about.
+
+---
+
 ## Running the Simulation
 
 ### Setup
@@ -120,12 +193,56 @@ streamlit run gaia_visualizer.py
 ```
 The Streamlit dashboard is designed as an experiment interface rather than a control panel.
 It allows repeatable simulation runs with adjustable parameters and visualizes system-level dynamics over time, supporting inspection, comparison, and future policy experimentation.
+At the current stage it is still a **post-run visualization tool**, not a live 2D world.
+
+### PixiJS 2D viewer
+The first visible spatial prototype now lives in `viewer/`.
+
+Install the local viewer dependencies:
+
+```bash
+cd viewer
+npm install
+```
+
+Export a spatial replay artifact from Python:
+
+```bash
+python main.py --mode spatial_v1_prototype --days 120 --households 1 --members 6 --grid-width 18 --grid-height 12 --artifact --out viewer/public/demo-spatial.json
+```
+
+Run the PixiJS viewer:
+
+```bash
+cd viewer
+npm run dev
+```
+
+Then open the local URL printed by Vite, usually:
+
+```text
+http://127.0.0.1:4173/
+```
+
+What the PixiJS viewer currently supports:
+
+- replaying a deterministic spatial artifact
+- play / pause / step / reset controls
+- timeline scrubbing
+- selected-agent inspection
+- loading a different artifact file from disk
+
+This viewer is intentionally a **renderer only**. Python remains the source of truth for world state and movement.
 
 ## Status
 
 GAIA is an early-stage research prototype (current version: v0.2).
 
 The current implementation focuses on establishing a modular simulation environment with explicit assumptions, agent-based dynamics, and observable system behavior. Many components are intentionally simplified, with the expectation that they will be extended, refined, or modularized further as new allocation mechanisms and learning agents are introduced.
+
+The immediate roadmap priority is to turn this into a **visible spatial prototype** before moving deeper into economic complexity.
+
+That first visible spatial prototype now exists as a separate PixiJS replay viewer backed by a minimal Python spatial mode.
 
 Its value lies in:
 - making assumptions explicit,

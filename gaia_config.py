@@ -7,6 +7,7 @@ from assumptions import DEFAULT_LEGACY_ASSUMPTIONS, LegacyAssumptions
 
 
 LEGACY_MODE = "legacy_v0_2"
+SPATIAL_MODE = "spatial_v1_prototype"
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,8 @@ class SimulationConfig:
     members_per_household: int = 20
     mode: str = LEGACY_MODE
     snapshot_frequency: int = 0
+    grid_width: int = 24
+    grid_height: int = 16
     assumptions: LegacyAssumptions = field(default_factory=lambda: DEFAULT_LEGACY_ASSUMPTIONS)
 
     def __post_init__(self) -> None:
@@ -24,6 +27,8 @@ class SimulationConfig:
             "days": self.days,
             "num_households": self.num_households,
             "members_per_household": self.members_per_household,
+            "grid_width": self.grid_width,
+            "grid_height": self.grid_height,
         }
         for name, value in positive_fields.items():
             if value < 1:
