@@ -75,6 +75,10 @@ http://127.0.0.1:4173/?live=http://127.0.0.1:9000
 ## Current Features
 
 - fixed grid replay
+- rendered terrain tiles with blocked rock barriers and slower terrain patches
+- weighted pathfinding over the tile grid
+- occupancy-aware movement on constrained tiles
+- explicit node arrival before food or water can be consumed
 - live stepping from Python
 - home / food / water nodes
 - per-tick agent movement

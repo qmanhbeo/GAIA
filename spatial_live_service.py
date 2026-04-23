@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from gaia_config import SPATIAL_MODE, SimulationConfig
-from spatial_simulation import SpatialPrototypeEngine
+from spatial_simulation import SPATIAL_ENGINE_VERSION, SpatialPrototypeEngine
 
 
 class SpatialLiveSession:
@@ -51,7 +51,7 @@ class SpatialLiveSession:
         return {
             "metadata": {
                 "service_kind": "spatial_live_v1",
-                "engine_version": "spatial-v1-prototype",
+                "engine_version": SPATIAL_ENGINE_VERSION,
                 "mode": self._config.mode,
                 "seed": self._config.seed,
                 "config": self._config.to_dict(),

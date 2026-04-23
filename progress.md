@@ -13,4 +13,13 @@ Original prompt: ok let's just stick to PixiJS then. I just want a 2D renderer. 
 - Confirmed and fixed a play-mode animation bug in `viewer/src/main.js`: the viewer had been interpolating from `frameIndex - 1` to `frameIndex` while a free-running accumulator continued through async live updates, which caused visible snapping during `Play`.
 - Reworked playback to use explicit transitions (`fromFrame -> toFrame`) for both replay and live mode, so a new tween starts only when a new frame exists instead of being inferred from `frameIndex`.
 - Verified the fix with `npm run build`, Python unit tests, live browser sampling through Playwright, and a screenshot sanity check of the live viewer.
-- TODO: decide whether the next step is better spatial legibility, richer movement rules, or viewer-driven interventions/config changes.
+- Upgraded `spatial_simulation.py` into a real Phase 1B world substrate: terrain tiles, movement cost, blocked rock chokepoints, pathfinding, occupancy-aware movement, explicit node arrival, and node depletion now exist in the Python engine.
+- Updated the PixiJS viewer to render terrain directly from snapshot tiles and show richer agent movement stats.
+- Added deterministic tests for terrain presence, gap-routing pathfinding, arrival-before-consumption, and occupancy-aware chokepoint behavior.
+- Regenerated `viewer/public/demo-spatial.json` so the bundled replay matches the new terrain/pathfinding world.
+- Fixed a viewer layout bug where the stage used a hard `min-height: 560px` and no world-aware aspect ratio, which made the grid feel stretched and oversized relative to the viewport.
+- The stage now sizes itself from the live world ratio and the actual viewport budget measured from the workspace chrome, so the grid stays proportional and fits the visible area much better across desktop and laptop widths.
+- Compressed the dashboard chrome to fit a normal laptop viewport better: smaller header and metric cards, tighter spacing, narrower sidebar, and collapsible `Legend` / `Use` panels.
+- Switched the desktop shell to a true `100dvh` viewport budget with overflow hidden at the page level and viewport-aware internal sizing, while preserving stacked scrolling behavior on narrower/mobile widths.
+- Verified on a `1180x820` browser viewport that `body.scrollHeight === clientHeight`, `shell.scrollHeight === clientHeight`, and `sidebar.scrollHeight === clientHeight`, meaning the normal laptop view no longer needs page or sidebar scrolling.
+- Next queue: Phase 2 in `plan.md` — vector needs, energy/fatigue, and a more interpretable local decision policy.

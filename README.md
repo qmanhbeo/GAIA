@@ -136,13 +136,17 @@ What exists today:
 - structured run artifacts with metadata, time series, final state, and snapshots
 - a PixiJS viewer that can replay saved spatial artifacts
 - a live Python spatial service that the PixiJS viewer can step in real time
+- terrain tiles with movement cost, blocked rock barriers, and a visible road corridor
+- weighted pathfinding over the grid instead of straight-line movement
+- occupancy-aware movement so agents cannot freely overlap on constrained tiles
+- explicit node arrival and resource depletion before food or water are consumed
 
 What does **not** exist yet:
 
-- terrain costs or meaningful pathfinding
 - queues, congestion, and institutional rules
 - in-world editing such as placing resources from the viewer
-- a full economy with transformation chains, storage logic, and long-horizon planning
+- vector need tradeoffs beyond hunger and thirst
+- a full economy with transformation chains, storage logic, carrying, and long-horizon planning
 
 The Streamlit dashboard remains the **experiment console**. The PixiJS viewer is the current **spatial client**.
 
@@ -150,26 +154,20 @@ The Streamlit dashboard remains the **experiment console**. The PixiJS viewer is
 
 ## Immediate Build Priority
 
-The next major implementation target is **not** the full non-price economy. It is the **first visible 2D spatial prototype**.
+The first visible 2D world and the next spatial substrate are now in place. The next major target is **Phase 2: vector needs and a better local decision policy**.
 
-Why:
+Why this is next:
 
-- seeing agents move through space is expected to produce better intuition than extending the current non-spatial allocator
-- early spatial visualization will make later rule and institution changes easier to reason about
-- distance, access cost, and movement are more important to validate early than advanced policy or RL logic
+- the world now has enough topology to create real access differences
+- agents can already be seen routing around blocked tiles and slower terrain
+- the next missing piece is not visibility, but richer decision pressure
 
-The first useful visible slice should be intentionally thin:
+What this means:
 
-- a fixed 2D tile grid
-- one home location
-- one food node
-- one water node
-- agents with `(x, y)` positions
-- simple tick-by-tick movement
-- simple visible needs and stats
-- a live view that shows agents moving before deeper economics are added
-
-This is the shortest path from the current prototype to something you can actually watch and reason about.
+- replace the current hunger/thirst-only heuristic with a small need vector
+- add energy or fatigue as a movement consequence
+- make agents choose actions by expected tension reduction instead of a hard threshold cascade
+- keep the viewer focused on legibility while those decision rules become more complex
 
 ---
 
@@ -256,6 +254,7 @@ What the PixiJS viewer currently supports:
 
 - replaying a deterministic spatial artifact
 - connecting to a live Python stepping service
+- rendering terrain tiles, blocked chokepoints, and node stock changes
 - play / pause / step / reset controls
 - timeline scrubbing
 - selected-agent inspection

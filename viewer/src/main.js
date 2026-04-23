@@ -28,8 +28,8 @@ appRoot.innerHTML = `
       <section class="brandline">
         <div class="brand-copy">
           <div class="micro-tag">GAIA Spatial Prototype</div>
-          <h1>First visible world</h1>
-          <p>Python remains authoritative. The viewer can replay saved artifacts or step a live spatial session directly so movement can be inspected while rules change.</p>
+          <h1>Live spatial lab</h1>
+          <p>Python owns the simulation. Replay or step the live world to inspect movement and tune rules.</p>
         </div>
       </section>
 
@@ -87,28 +87,36 @@ appRoot.innerHTML = `
         <div id="agent-card" class="hint">Click an agent or let the default selection load.</div>
       </section>
 
-      <section class="panel">
-        <h3>Legend</h3>
-        <div class="legend-grid">
+      <details class="panel panel-collapsible">
+        <summary class="panel-summary">Legend</summary>
+        <div class="panel-body legend-grid">
+          <div class="legend-item"><span class="legend-swatch" style="background:#152a3b"></span>Road / low-friction lane</div>
+          <div class="legend-item"><span class="legend-swatch" style="background:#173624"></span>Brush / slow terrain</div>
+          <div class="legend-item"><span class="legend-swatch" style="background:#153244"></span>Marsh / very slow terrain</div>
+          <div class="legend-item"><span class="legend-swatch" style="background:#233547"></span>Rock / blocked tile</div>
           <div class="legend-item"><span class="legend-swatch" style="background:#ffdd9a"></span>Home / rest point</div>
           <div class="legend-item"><span class="legend-swatch" style="background:#9df584"></span>Food node</div>
           <div class="legend-item"><span class="legend-swatch" style="background:#76d0ff"></span>Water node</div>
           <div class="legend-item"><span class="legend-swatch" style="background:#f6f8fb"></span>Agent body</div>
           <div class="legend-item"><span class="legend-swatch" style="background:#f5b156"></span>Selected agent highlight</div>
         </div>
-      </section>
+      </details>
 
-      <section class="panel">
-        <h3>Use</h3>
-        <div class="hint" id="usage-copy">
+      <details class="panel panel-collapsible">
+        <summary class="panel-summary">Use</summary>
+        <div class="panel-body hint" id="usage-copy">
           Connect to the Python live service for true step-by-step inspection, or fall back to a saved artifact replay.
         </div>
-      </section>
+      </details>
     </aside>
   </div>
 `;
 
 const stageElement = document.querySelector("#stage");
+const workspaceElement = document.querySelector(".workspace");
+const brandlineElement = document.querySelector(".brandline");
+const metaGridElement = document.querySelector(".meta-grid");
+const controlsElement = document.querySelector(".controls");
 const timelineInput = document.querySelector("#timeline");
 const timelineLabel = document.querySelector("#timeline-label");
 const playToggle = document.querySelector("#play-toggle");
@@ -171,6 +179,8 @@ function renderAgentCard(agent) {
     <div class="status-line"><span>Target</span><strong>${agent.target_kind || "none"}</strong></div>
     <div class="status-line"><span>Last action</span><strong>${agent.last_action}</strong></div>
     <div class="status-line"><span>Position</span><strong>(${agent.x}, ${agent.y})</strong></div>
+    <div class="status-line"><span>Path steps</span><strong>${agent.path_length ?? "-"}</strong></div>
+    <div class="status-line"><span>Travel delay</span><strong>${agent.move_cooldown ?? 0}</strong></div>
     <div class="stat-list">
       ${meterRow("Health", agent.health, "#f28f8f")}
       ${meterRow("Hunger", agent.hunger, "#9df584")}
@@ -237,7 +247,40 @@ function resolveSelectedAgent(frame) {
   return selected || frame.agents[0];
 }
 
+function syncStageBounds(frame) {
+  const ratio = Math.max(0.5, frame.grid.width / frame.grid.height);
+  stageElement.style.setProperty("--world-ratio", `${frame.grid.width} / ${frame.grid.height}`);
+
+  const workspaceStyles = window.getComputedStyle(workspaceElement);
+  const viewportHeight = window.visualViewport?.height || window.innerHeight;
+  const paddingX = parseFloat(workspaceStyles.paddingLeft || "0") + parseFloat(workspaceStyles.paddingRight || "0");
+  const paddingY = parseFloat(workspaceStyles.paddingTop || "0") + parseFloat(workspaceStyles.paddingBottom || "0");
+  const rowGap = parseFloat(workspaceStyles.rowGap || workspaceStyles.gap || "0");
+  const nonStageHeight =
+    brandlineElement.offsetHeight +
+    metaGridElement.offsetHeight +
+    controlsElement.offsetHeight +
+    paddingY +
+    rowGap * 3;
+
+  const maxHeight = Math.max(220, viewportHeight - nonStageHeight - 16);
+  const maxWidth = Math.max(220, workspaceElement.clientWidth - paddingX);
+
+  let width = Math.min(maxWidth, maxHeight * ratio);
+  let height = width / ratio;
+  if (height > maxHeight) {
+    height = maxHeight;
+    width = height * ratio;
+  }
+
+  const nextWidth = Math.max(220, Math.floor(width));
+  const nextHeight = Math.max(180, Math.floor(height));
+  stageElement.style.width = `${nextWidth}px`;
+  stageElement.style.height = `${nextHeight}px`;
+}
+
 function worldLayout(frame) {
+  syncStageBounds(frame);
   const width = frame.grid.width;
   const height = frame.grid.height;
   const padding = 52;
@@ -269,6 +312,18 @@ function drawGrid(frame) {
   );
   grid.fill({ color: 0x081521, alpha: 0.88 });
   grid.stroke({ color: 0x27445e, width: 2, alpha: 0.7 });
+
+  for (const tile of frame.grid.tiles || []) {
+    const px = layout.offsetX + tile.x * layout.tileSize;
+    const py = layout.offsetY + tile.y * layout.tileSize;
+    const color = PIXI.Color.shared.setValue(tile.color || "#0d1a28").toNumber();
+    grid.rect(px, py, layout.tileSize, layout.tileSize);
+    grid.fill({ color, alpha: tile.passable ? 0.92 : 1.0 });
+    if (tile.occupied > 0) {
+      grid.rect(px + 2, py + 2, layout.tileSize - 4, layout.tileSize - 4);
+      grid.fill({ color: 0xe9f3ff, alpha: Math.min(0.22, 0.08 * tile.occupied) });
+    }
+  }
 
   for (let x = 0; x <= frame.grid.width; x += 1) {
     const px = layout.offsetX + x * layout.tileSize;
@@ -753,6 +808,8 @@ window.render_game_to_text = () => {
           thirst: selected.thirst,
           state: selected.state,
           target_kind: selected.target_kind,
+          move_cooldown: selected.move_cooldown,
+          path_length: selected.path_length,
         }
       : null,
     metrics: frame?.metrics || null,

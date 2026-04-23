@@ -6,6 +6,7 @@ from assumptions import LegacyAssumptions
 from gaia_config import LEGACY_MODE, SPATIAL_MODE, SimulationConfig
 from main import run_simulation, run_simulation_artifact
 from spatial_live_service import SpatialLiveSession
+from spatial_simulation import SpatialPrototypeEngine
 from simulation import SimulationEngine
 
 
@@ -110,6 +111,119 @@ class SimulationDeterminismTests(unittest.TestCase):
         first = run_simulation_artifact(config=config).to_dict()
         second = run_simulation_artifact(config=config).to_dict()
         self.assertEqual(first, second)
+
+    def test_spatial_snapshot_contains_tiles_and_terrain(self):
+        engine = SpatialPrototypeEngine(
+            config=SimulationConfig(
+                days=6,
+                seed=5,
+                num_households=1,
+                members_per_household=2,
+                mode=SPATIAL_MODE,
+                grid_width=12,
+                grid_height=9,
+            )
+        )
+
+        snapshot = engine.snapshot()
+        tiles = snapshot["grid"]["tiles"]
+        self.assertEqual(len(tiles), 12 * 9)
+        self.assertIn("road", {tile["kind"] for tile in tiles})
+        self.assertIn("rock", {tile["kind"] for tile in tiles})
+        self.assertTrue(any(tile["movement_cost"] > 1 for tile in tiles))
+        self.assertTrue(any(not tile["passable"] for tile in tiles))
+
+    def test_spatial_pathfinding_routes_agents_through_gap(self):
+        engine = SpatialPrototypeEngine(
+            config=SimulationConfig(
+                days=16,
+                seed=8,
+                num_households=1,
+                members_per_household=1,
+                mode=SPATIAL_MODE,
+                grid_width=12,
+                grid_height=10,
+            )
+        )
+
+        barrier_x = engine._barrier_x()
+        gap_y = engine._gap_y()
+        agent = engine.agents[0]
+        agent.thirst = 0.9
+        agent.hunger = 0.1
+
+        positions = []
+        for _ in range(10):
+            engine.step()
+            positions.append((agent.x, agent.y))
+
+        crossed = [position for position in positions if position[0] > barrier_x]
+        self.assertTrue(crossed)
+        self.assertEqual(crossed[0][1], gap_y)
+        self.assertTrue(all(not (x == barrier_x and y != gap_y) for x, y in positions))
+
+    def test_spatial_consumption_requires_arrival_before_stock_changes(self):
+        engine = SpatialPrototypeEngine(
+            config=SimulationConfig(
+                days=6,
+                seed=10,
+                num_households=1,
+                members_per_household=1,
+                mode=SPATIAL_MODE,
+                grid_width=12,
+                grid_height=10,
+            )
+        )
+
+        agent = engine.agents[0]
+        food = engine._node_by_kind("food")
+        food.replenish_per_tick = 0.0
+        agent.x = food.x - 1
+        agent.y = food.y
+        agent.hunger = 0.95
+        agent.thirst = 0.1
+
+        initial_stock = food.stock
+        engine.step()
+        self.assertEqual((agent.x, agent.y), (food.x, food.y))
+        self.assertEqual(food.stock, initial_stock)
+
+        engine.step()
+        self.assertLess(food.stock, initial_stock)
+        self.assertEqual(agent.last_action, "eat")
+
+    def test_spatial_occupied_chokepoint_blocks_following_agent(self):
+        engine = SpatialPrototypeEngine(
+            config=SimulationConfig(
+                days=4,
+                seed=12,
+                num_households=1,
+                members_per_household=2,
+                mode=SPATIAL_MODE,
+                grid_width=12,
+                grid_height=10,
+            )
+        )
+
+        barrier_x = engine._barrier_x()
+        gap_y = engine._gap_y()
+        lead, follower = engine.agents[:2]
+        lead.x = barrier_x
+        lead.y = gap_y
+        lead.move_cooldown = 1
+        lead.thirst = 0.9
+        lead.hunger = 0.1
+
+        follower.x = barrier_x - 1
+        follower.y = gap_y
+        follower.move_cooldown = 0
+        follower.thirst = 0.9
+        follower.hunger = 0.1
+
+        engine.step()
+        self.assertNotEqual((follower.x, follower.y), (barrier_x, gap_y))
+        self.assertLessEqual(follower.x, barrier_x - 1)
+        self.assertNotEqual((lead.x, lead.y), (follower.x, follower.y))
 
     def test_spatial_live_session_steps_and_resets(self):
         session = SpatialLiveSession(

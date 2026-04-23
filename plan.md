@@ -22,24 +22,18 @@ Additional stack decisions:
 
 ## Immediate Priority
 
-Before deeper economics work, GAIA should produce a **first visible 2D world** that can be watched tick by tick.
+The first visible 2D world and the next spatial substrate are now implemented. The next implementation target is **Phase 2: vector needs and a better local decision policy**.
 
 Reasoning:
-- spatial intuition is more valuable right now than further extending the centralized allocator
-- visible movement will expose design flaws earlier than abstract charts
-- rules and institutions will be easier to evaluate after agents can be seen moving through space
+- the map now has terrain, blocked tiles, pathfinding, and physical node access
+- the current bottleneck is no longer “can we see the world?”
+- the next bottleneck is “are the agents making interesting enough tradeoffs inside that world?”
 
-This means the next implementation target is a **thin vertical slice**, not the full v0.3 economy:
-- fixed 2D tile grid
-- one home location
-- one food node
-- one water node
-- agents with `(x, y)` positions
-- simple nearest-need movement
-- visible per-agent stats
-- live stepping and replay in the UI
-
-The goal of this slice is legibility, not realism.
+Near-term focus:
+- extend the need model beyond hunger and thirst
+- add energy or fatigue as a movement consequence
+- move from hard thresholds toward interpretable tension-based local action choice
+- keep the viewer legible while the policy layer becomes richer
 
 ## Key Architectural Changes
 
@@ -165,11 +159,11 @@ Acceptance criteria:
 - this slice is usable for behavioral intuition even if institutions and advanced logic are still absent
 
 ### Phase 1B: Spatial world primitives
-- [ ] Add a tile grid abstraction with coordinates, terrain types, movement costs, and occupancy rules
-- [ ] Give agents, households, and nodes positions in the world
-- [ ] Add pathfinding or shortest-path movement cost calculation on the grid
-- [ ] Replace direct food/water distribution with explicit travel and access attempts
-- [ ] Preserve daily/tick stepping through the existing engine entrypoint
+- [x] Add a tile grid abstraction with coordinates, terrain types, movement costs, and occupancy rules
+- [x] Give agents, households, and nodes positions in the world
+- [x] Add pathfinding or shortest-path movement cost calculation on the grid
+- [x] Replace direct food/water distribution with explicit travel and access attempts
+- [x] Preserve daily/tick stepping through the existing engine entrypoint
 
 Decisions locked:
 - use a discrete tile grid, not a node graph
