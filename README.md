@@ -126,7 +126,7 @@ Non-default decisions:
 
 ## Visualization Status
 
-GAIA is currently **visualizable**, but not yet **playable** as a 2D world.
+GAIA is currently **visualizable** and now has a **live 2D spatial prototype**, but it is still not a full game or a rich economic world.
 
 What exists today:
 
@@ -134,16 +134,17 @@ What exists today:
 - a Streamlit dashboard for interactive runs
 - post-run charts and metrics
 - structured run artifacts with metadata, time series, final state, and snapshots
+- a PixiJS viewer that can replay saved spatial artifacts
+- a live Python spatial service that the PixiJS viewer can step in real time
 
 What does **not** exist yet:
 
-- a tile grid or map
-- agent coordinates
-- terrain movement or pathfinding
-- a live world view with moving agents
-- in-world interaction such as placing resources or watching queues form on a map
+- terrain costs or meaningful pathfinding
+- queues, congestion, and institutional rules
+- in-world editing such as placing resources from the viewer
+- a full economy with transformation chains, storage logic, and long-horizon planning
 
-The current dashboard is therefore an **experiment console**, not a game client.
+The Streamlit dashboard remains the **experiment console**. The PixiJS viewer is the current **spatial client**.
 
 ---
 
@@ -196,9 +197,30 @@ It allows repeatable simulation runs with adjustable parameters and visualizes s
 At the current stage it is still a **post-run visualization tool**, not a live 2D world.
 
 ### PixiJS 2D viewer
-The first visible spatial prototype now lives in `viewer/`.
+The first visible spatial prototype now lives in `viewer/`, and it supports both replay mode and live stepping.
 
-Install the local viewer dependencies:
+Fastest path from the repo root:
+
+```bash
+./run_spatial_world.sh
+```
+
+That one command:
+
+- installs the viewer dependencies if needed
+- starts the live Python spatial service
+- starts the PixiJS viewer on a fixed local port
+- shuts both down together when you press `Ctrl-C`
+
+You can override the defaults with environment variables such as `GAIA_GRID_WIDTH`, `GAIA_GRID_HEIGHT`, or `GAIA_MEMBERS`.
+
+Example:
+
+```bash
+GAIA_MEMBERS=10 GAIA_GRID_WIDTH=24 GAIA_GRID_HEIGHT=16 ./run_spatial_world.sh
+```
+
+If you want to run the pieces manually, install the local viewer dependencies:
 
 ```bash
 cd viewer
@@ -209,6 +231,12 @@ Export a spatial replay artifact from Python:
 
 ```bash
 python main.py --mode spatial_v1_prototype --days 120 --households 1 --members 6 --grid-width 18 --grid-height 12 --artifact --out viewer/public/demo-spatial.json
+```
+
+Or start the live Python service:
+
+```bash
+python spatial_live_service.py --port 8765 --days 240 --households 1 --members 6 --grid-width 18 --grid-height 12
 ```
 
 Run the PixiJS viewer:
@@ -227,6 +255,7 @@ http://127.0.0.1:4173/
 What the PixiJS viewer currently supports:
 
 - replaying a deterministic spatial artifact
+- connecting to a live Python stepping service
 - play / pause / step / reset controls
 - timeline scrubbing
 - selected-agent inspection
@@ -240,9 +269,9 @@ GAIA is an early-stage research prototype (current version: v0.2).
 
 The current implementation focuses on establishing a modular simulation environment with explicit assumptions, agent-based dynamics, and observable system behavior. Many components are intentionally simplified, with the expectation that they will be extended, refined, or modularized further as new allocation mechanisms and learning agents are introduced.
 
-The immediate roadmap priority is to turn this into a **visible spatial prototype** before moving deeper into economic complexity.
+The immediate roadmap priority is to turn this first visible spatial prototype into a **better live development tool** before moving deeper into economic complexity.
 
-That first visible spatial prototype now exists as a separate PixiJS replay viewer backed by a minimal Python spatial mode.
+That first visible spatial prototype now exists as a separate PixiJS viewer backed by a minimal Python spatial mode and a live stepping service.
 
 Its value lies in:
 - making assumptions explicit,

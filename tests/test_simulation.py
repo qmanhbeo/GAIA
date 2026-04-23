@@ -5,6 +5,7 @@ import unittest
 from assumptions import LegacyAssumptions
 from gaia_config import LEGACY_MODE, SPATIAL_MODE, SimulationConfig
 from main import run_simulation, run_simulation_artifact
+from spatial_live_service import SpatialLiveSession
 from simulation import SimulationEngine
 
 
@@ -109,6 +110,31 @@ class SimulationDeterminismTests(unittest.TestCase):
         first = run_simulation_artifact(config=config).to_dict()
         second = run_simulation_artifact(config=config).to_dict()
         self.assertEqual(first, second)
+
+    def test_spatial_live_session_steps_and_resets(self):
+        session = SpatialLiveSession(
+            config=SimulationConfig(
+                days=20,
+                seed=4,
+                num_households=1,
+                members_per_household=3,
+                mode=SPATIAL_MODE,
+                grid_width=10,
+                grid_height=8,
+            )
+        )
+
+        initial = session.current_state()
+        self.assertEqual(initial["snapshot"]["tick"], 0)
+
+        advanced = session.step(steps=4)
+        self.assertEqual(advanced["snapshot"]["tick"], 4)
+        self.assertEqual(advanced["metadata"]["mode"], SPATIAL_MODE)
+
+        reset = session.reset({"seed": 9, "grid_width": 12})
+        self.assertEqual(reset["snapshot"]["tick"], 0)
+        self.assertEqual(reset["metadata"]["config"]["seed"], 9)
+        self.assertEqual(reset["metadata"]["config"]["grid_width"], 12)
 
 
 if __name__ == "__main__":

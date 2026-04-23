@@ -2,18 +2,23 @@ import "./style.css";
 import * as PIXI from "pixi.js";
 
 const DEFAULT_ARTIFACT_PATH = "/demo-spatial.json";
+const DEFAULT_LIVE_URL = "http://127.0.0.1:8765";
 const TICK_MS_FALLBACK = 280;
 
 const state = {
   artifact: null,
   frames: [],
   frameIndex: 0,
-  playing: true,
+  playing: false,
   tickDurationMs: TICK_MS_FALLBACK,
   selectedAgentId: null,
   accumulatorMs: 0,
+  transition: null,
   sprites: new Map(),
   nodeSprites: new Map(),
+  source: "unloaded",
+  liveUrl: new URLSearchParams(window.location.search).get("live") || DEFAULT_LIVE_URL,
+  liveRequestInFlight: false,
 };
 
 const appRoot = document.querySelector("#app");
@@ -24,7 +29,7 @@ appRoot.innerHTML = `
         <div class="brand-copy">
           <div class="micro-tag">GAIA Spatial Prototype</div>
           <h1>First visible world</h1>
-          <p>Python remains authoritative. This viewer only replays spatial snapshots so movement and need-driven behavior can be inspected before deeper economics arrive.</p>
+          <p>Python remains authoritative. The viewer can replay saved artifacts or step a live spatial session directly so movement can be inspected while rules change.</p>
         </div>
       </section>
 
@@ -52,8 +57,11 @@ appRoot.innerHTML = `
       </section>
 
       <section class="controls">
-        <button class="btn" id="play-toggle">Pause</button>
+        <button class="btn" id="play-toggle">Play</button>
         <button class="btn" id="step-btn">Step</button>
+        <button class="btn" id="reset-btn">Reset</button>
+        <button class="btn" id="connect-live-btn">Connect live</button>
+        <button class="btn" id="load-demo-btn">Load demo</button>
         <label class="file-label">
           Load artifact
           <input id="artifact-input" type="file" accept="application/json" />
@@ -62,13 +70,13 @@ appRoot.innerHTML = `
           <input id="timeline" type="range" min="0" max="0" step="1" value="0" />
           <span id="timeline-label">0 / 0</span>
         </div>
-        <button class="btn" id="reset-btn">Reset</button>
       </section>
     </main>
 
     <aside class="sidebar">
       <section class="panel">
         <h2>Run Status</h2>
+        <div class="status-line"><span>Source</span><strong id="source-mode">unloaded</strong></div>
         <div class="status-line"><span>Viewer</span><strong id="viewer-mode">loading</strong></div>
         <div class="status-line"><span>Engine</span><strong id="engine-version">unknown</strong></div>
         <div class="status-line"><span>Seed</span><strong id="seed-value">-</strong></div>
@@ -92,8 +100,8 @@ appRoot.innerHTML = `
 
       <section class="panel">
         <h3>Use</h3>
-        <div class="hint">
-          Export a deterministic replay from Python, then load it here. The frontend only draws snapshots and never decides movement.
+        <div class="hint" id="usage-copy">
+          Connect to the Python live service for true step-by-step inspection, or fall back to a saved artifact replay.
         </div>
       </section>
     </aside>
@@ -107,6 +115,8 @@ const playToggle = document.querySelector("#play-toggle");
 const stepButton = document.querySelector("#step-btn");
 const resetButton = document.querySelector("#reset-btn");
 const artifactInput = document.querySelector("#artifact-input");
+const connectLiveButton = document.querySelector("#connect-live-btn");
+const loadDemoButton = document.querySelector("#load-demo-btn");
 
 const pixiApp = new PIXI.Application();
 await pixiApp.init({
@@ -177,17 +187,43 @@ function updateMetricCards(frame) {
   document.querySelector("#metric-thirst").textContent = safeValue(metrics.avg_thirst).toFixed(2);
 }
 
-function setStatusFromArtifact(artifact) {
-  const metadata = artifact.metadata || {};
-  document.querySelector("#viewer-mode").textContent = metadata.viewer_kind || "replay";
+function updateStatus(metadata = {}) {
+  document.querySelector("#source-mode").textContent = state.source;
+  document.querySelector("#viewer-mode").textContent = metadata.viewer_kind || metadata.service_kind || "replay";
   document.querySelector("#engine-version").textContent = metadata.engine_version || "unknown";
   document.querySelector("#seed-value").textContent = metadata.seed ?? "-";
 }
 
-function updateTimeline() {
+function updateUsageCopy(message) {
+  document.querySelector("#usage-copy").textContent = message;
+}
+
+function clearTransition() {
+  state.accumulatorMs = 0;
+  state.transition = null;
+}
+
+function startTransition(fromFrame, toFrame, displayIndex) {
+  state.accumulatorMs = 0;
+  state.transition = {
+    fromFrame,
+    toFrame,
+    displayIndex,
+  };
+}
+
+function transitionProgress() {
+  if (!state.transition) {
+    return 1;
+  }
+  return clamp(state.accumulatorMs / state.tickDurationMs, 0, 1);
+}
+
+function updateTimeline(displayIndex = state.frameIndex) {
   timelineInput.max = Math.max(0, state.frames.length - 1);
-  timelineInput.value = String(state.frameIndex);
-  timelineLabel.textContent = `${state.frameIndex} / ${Math.max(0, state.frames.length - 1)}`;
+  timelineInput.value = String(displayIndex);
+  timelineLabel.textContent = `${displayIndex} / ${Math.max(0, state.frames.length - 1)}`;
+  timelineInput.disabled = state.source === "live" && state.playing;
 }
 
 function resolveSelectedAgent(frame) {
@@ -317,7 +353,7 @@ function drawTrails(frame, previousFrame, layout) {
   trailLayer.addChild(trail);
 }
 
-function syncAgents(frame, previousFrame, layout) {
+function syncAgents(frame, previousFrame, layout, interpolation = 1) {
   const previousById = new Map((previousFrame?.agents || []).map((agent) => [agent.id, agent]));
   const activeIds = new Set();
 
@@ -342,7 +378,7 @@ function syncAgents(frame, previousFrame, layout) {
       container.cursor = "pointer";
       container.on("pointertap", () => {
         state.selectedAgentId = agent.id;
-        renderFrame(state.frameIndex);
+        renderCurrentView();
       });
       container.addChild(halo, body, label);
       state.sprites.set(agent.id, container);
@@ -355,7 +391,6 @@ function syncAgents(frame, previousFrame, layout) {
     const point = toScreenPoint(layout, agent.x, agent.y);
     const previous = previousById.get(agent.id);
     const origin = previous ? toScreenPoint(layout, previous.x, previous.y) : point;
-    const interpolation = state.playing ? clamp(state.accumulatorMs / state.tickDurationMs, 0, 1) : 1;
     const drawX = origin.x + (point.x - origin.x) * interpolation;
     const drawY = origin.y + (point.y - origin.y) * interpolation;
 
@@ -381,32 +416,119 @@ function syncAgents(frame, previousFrame, layout) {
   }
 }
 
-function renderFrame(frameIndex) {
-  if (!state.frames.length) {
-    return;
-  }
-  state.frameIndex = clamp(frameIndex, 0, state.frames.length - 1);
-  const frame = state.frames[state.frameIndex];
-  const previousFrame = state.frameIndex > 0 ? state.frames[state.frameIndex - 1] : null;
+function renderScene(frame, previousFrame = null, interpolation = 1, displayIndex = state.frameIndex) {
   const selected = resolveSelectedAgent(frame);
   const layout = drawGrid(frame);
   drawTrails(frame, previousFrame, layout);
   syncNodes(frame, layout);
-  syncAgents(frame, previousFrame, layout);
+  syncAgents(frame, previousFrame, layout, interpolation);
   updateMetricCards(frame);
   renderAgentCard(selected);
-  updateTimeline();
+  updateTimeline(displayIndex);
 }
 
-function setArtifact(artifact) {
+function renderCurrentView() {
+  if (!state.frames.length) {
+    return;
+  }
+  if (state.transition) {
+    renderScene(
+      state.transition.toFrame,
+      state.transition.fromFrame,
+      transitionProgress(),
+      state.transition.displayIndex
+    );
+    return;
+  }
+  const frame = state.frames[state.frameIndex];
+  const previousFrame = state.frameIndex > 0 ? state.frames[state.frameIndex - 1] : null;
+  renderScene(frame, previousFrame, 1, state.frameIndex);
+}
+
+function renderFrame(frameIndex) {
+  if (!state.frames.length) {
+    return;
+  }
+  clearTransition();
+  state.frameIndex = clamp(frameIndex, 0, state.frames.length - 1);
+  renderCurrentView();
+}
+
+function setSource(nextSource) {
+  state.source = nextSource;
+  document.querySelector("#source-mode").textContent = nextSource;
+}
+
+function setArtifact(artifact, options = {}) {
   state.artifact = artifact;
   state.frames = artifact.snapshots || [];
   state.frameIndex = 0;
-  state.accumulatorMs = 0;
+  clearTransition();
   state.tickDurationMs = artifact.metadata?.tick_duration_ms || TICK_MS_FALLBACK;
   state.selectedAgentId = artifact.final_state?.selected_agent?.id || artifact.snapshots?.[0]?.selected_agent?.id || null;
-  setStatusFromArtifact(artifact);
-  renderFrame(0);
+  setSource(options.source || "replay");
+  updateStatus(artifact.metadata);
+  updateUsageCopy("Replay mode draws saved snapshots. Load another artifact or connect to the live Python service when you want live stepping.");
+  renderCurrentView();
+}
+
+function upsertFrame(frame) {
+  const lastFrame = state.frames[state.frames.length - 1];
+  if (!lastFrame || frame.tick > lastFrame.tick) {
+    state.frames.push(frame);
+    return;
+  }
+  if (frame.tick === lastFrame.tick) {
+    state.frames[state.frames.length - 1] = frame;
+    return;
+  }
+  const index = state.frames.findIndex((item) => item.tick === frame.tick);
+  if (index >= 0) {
+    state.frames[index] = frame;
+  } else {
+    state.frames.push(frame);
+    state.frames.sort((left, right) => left.tick - right.tick);
+  }
+}
+
+function ingestLiveState(payload, options = {}) {
+  const metadata = payload.metadata || {};
+  const frame = payload.snapshot;
+  if (!frame) {
+    return;
+  }
+  const previousFrame = state.frames[state.frames.length - 1] || null;
+  let nextFrameIndex = state.frameIndex;
+  if (options.resetHistory) {
+    state.frames = [frame];
+    nextFrameIndex = 0;
+    clearTransition();
+  } else {
+    upsertFrame(frame);
+    nextFrameIndex = state.frames.findIndex((item) => item.tick === frame.tick);
+    if (nextFrameIndex < 0) {
+      nextFrameIndex = state.frames.length - 1;
+    }
+    if (state.playing && previousFrame && frame.tick > previousFrame.tick) {
+      startTransition(previousFrame, frame, nextFrameIndex);
+    } else {
+      clearTransition();
+    }
+  }
+  state.artifact = {
+    metadata,
+    snapshots: state.frames,
+    final_state: frame,
+  };
+  state.tickDurationMs = metadata.tick_duration_ms || TICK_MS_FALLBACK;
+  state.selectedAgentId = state.selectedAgentId || frame.selected_agent?.id || frame.agents?.[0]?.id || null;
+  setSource("live");
+  updateStatus(metadata);
+  updateUsageCopy("Live mode steps the Python service directly. Play requests new ticks from the backend; reset restarts the live world.");
+  if (!state.transition) {
+    state.frameIndex = nextFrameIndex;
+  }
+  renderCurrentView();
 }
 
 async function loadArtifactFromUrl(path) {
@@ -422,23 +544,127 @@ async function loadArtifactFromFile(file) {
   return JSON.parse(text);
 }
 
-function setPlaying(nextValue) {
-  state.playing = nextValue;
-  playToggle.textContent = state.playing ? "Pause" : "Play";
+async function fetchLive(path, options = {}) {
+  const response = await fetch(`${state.liveUrl}${path}`, {
+    headers: {
+      "Content-Type": "application/json",
+    },
+    ...options,
+  });
+  if (!response.ok) {
+    throw new Error(`Live service request failed: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
 }
 
-playToggle.addEventListener("click", () => {
+async function connectLive(options = {}) {
+  const payload = await fetchLive("/state");
+  ingestLiveState(payload, { resetHistory: true });
+  setPlaying(options.autoPlay === true);
+}
+
+async function requestLiveStep(steps = 1) {
+  if (state.liveRequestInFlight) {
+    return;
+  }
+  state.liveRequestInFlight = true;
+  try {
+    const payload = await fetchLive("/step", {
+      method: "POST",
+      body: JSON.stringify({ steps }),
+    });
+    ingestLiveState(payload, { resetHistory: false });
+  } finally {
+    state.liveRequestInFlight = false;
+  }
+}
+
+async function resetLiveSession() {
+  if (state.liveRequestInFlight) {
+    return;
+  }
+  state.liveRequestInFlight = true;
+  try {
+    const payload = await fetchLive("/reset", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    clearTransition();
+    state.selectedAgentId = null;
+    ingestLiveState(payload, { resetHistory: true });
+  } finally {
+    state.liveRequestInFlight = false;
+  }
+}
+
+function setPlaying(nextValue) {
+  if (!nextValue && state.transition) {
+    state.frameIndex = state.transition.displayIndex;
+    clearTransition();
+  }
+  state.playing = nextValue;
+  playToggle.textContent = state.playing ? "Pause" : "Play";
+  if (!state.playing) {
+    renderCurrentView();
+  }
+}
+
+playToggle.addEventListener("click", async () => {
+  if (state.source === "live" && !state.frames.length) {
+    try {
+      await connectLive({ autoPlay: true });
+      return;
+    } catch (error) {
+      updateUsageCopy(error.message);
+      return;
+    }
+  }
   setPlaying(!state.playing);
 });
 
-stepButton.addEventListener("click", () => {
+stepButton.addEventListener("click", async () => {
   setPlaying(false);
+  if (state.source === "live") {
+    try {
+      await requestLiveStep(1);
+    } catch (error) {
+      updateUsageCopy(error.message);
+    }
+    return;
+  }
   renderFrame(state.frameIndex + 1);
 });
 
-resetButton.addEventListener("click", () => {
-  state.accumulatorMs = 0;
+resetButton.addEventListener("click", async () => {
+  clearTransition();
+  if (state.source === "live") {
+    try {
+      await resetLiveSession();
+    } catch (error) {
+      updateUsageCopy(error.message);
+    }
+    return;
+  }
   renderFrame(0);
+});
+
+connectLiveButton.addEventListener("click", async () => {
+  try {
+    await connectLive({ autoPlay: false });
+  } catch (error) {
+    setPlaying(false);
+    updateUsageCopy(`Could not connect to live service at ${state.liveUrl}. Start spatial_live_service.py and try again.`);
+  }
+});
+
+loadDemoButton.addEventListener("click", async () => {
+  try {
+    const artifact = await loadArtifactFromUrl(artifactPath);
+    setPlaying(false);
+    setArtifact(artifact, { source: "replay" });
+  } catch (error) {
+    updateUsageCopy("No demo artifact was found. Export one from Python or connect to the live service.");
+  }
 });
 
 timelineInput.addEventListener("input", (event) => {
@@ -452,34 +678,70 @@ artifactInput.addEventListener("change", async (event) => {
     return;
   }
   const artifact = await loadArtifactFromFile(file);
-  setArtifact(artifact);
+  setPlaying(false);
+  setArtifact(artifact, { source: "replay" });
 });
 
 pixiApp.ticker.add(() => {
-  if (!state.playing || state.frames.length <= 1) {
+  if (!state.frames.length) {
     return;
   }
-  state.accumulatorMs += pixiApp.ticker.deltaMS;
-  if (state.accumulatorMs >= state.tickDurationMs) {
-    state.accumulatorMs = 0;
+
+  if (!state.playing) {
+    renderCurrentView();
+    return;
+  }
+
+  if (state.source === "live") {
+    if (state.transition) {
+      state.accumulatorMs += pixiApp.ticker.deltaMS;
+      renderCurrentView();
+      if (transitionProgress() >= 1) {
+        state.frameIndex = state.transition.displayIndex;
+        clearTransition();
+      }
+      return;
+    }
+
+    renderCurrentView();
+    if (!state.liveRequestInFlight) {
+      void requestLiveStep(1).catch((error) => {
+        setPlaying(false);
+        updateUsageCopy(error.message);
+      });
+    }
+    return;
+  }
+
+  if (!state.transition) {
     if (state.frameIndex >= state.frames.length - 1) {
       setPlaying(false);
       return;
     }
-    renderFrame(state.frameIndex + 1);
-  } else {
-    renderFrame(state.frameIndex);
+    startTransition(state.frames[state.frameIndex], state.frames[state.frameIndex + 1], state.frameIndex + 1);
+  }
+
+  state.accumulatorMs += pixiApp.ticker.deltaMS;
+  renderCurrentView();
+  if (transitionProgress() >= 1) {
+    state.frameIndex = state.transition.displayIndex;
+    clearTransition();
+    if (state.frameIndex >= state.frames.length - 1) {
+      setPlaying(false);
+    }
   }
 });
 
 window.render_game_to_text = () => {
-  const frame = state.frames[state.frameIndex];
+  const frame = state.transition?.toFrame || state.frames[state.frameIndex];
   const selected = resolveSelectedAgent(frame);
   return JSON.stringify({
     mode: state.artifact?.metadata?.mode || "unloaded",
+    source: state.source,
     tick: frame?.tick ?? 0,
-    frame_index: state.frameIndex,
+    frame_index: state.transition?.displayIndex ?? state.frameIndex,
     total_frames: state.frames.length,
+    transition_progress: state.transition ? transitionProgress() : 1,
     selected_agent: selected
       ? {
           id: selected.id,
@@ -502,32 +764,50 @@ window.render_game_to_text = () => {
   });
 };
 
-window.advanceTime = (ms) => {
-  if (!state.frames.length) {
+window.advanceTime = async (ms) => {
+  if (!state.frames.length && state.source !== "live") {
     return;
   }
   const steps = Math.max(1, Math.round(ms / state.tickDurationMs));
+  if (state.source === "live") {
+    await requestLiveStep(steps);
+    return;
+  }
   renderFrame(Math.min(state.frameIndex + steps, state.frames.length - 1));
 };
 
 window.addEventListener("resize", () => {
-  renderFrame(state.frameIndex);
+  renderCurrentView();
 });
 
-try {
-  const artifact = await loadArtifactFromUrl(artifactPath);
-  setArtifact(artifact);
-} catch (error) {
-  setPlaying(false);
-  document.querySelector("#viewer-mode").textContent = "awaiting artifact";
-  document.querySelector("#agent-card").innerHTML = `
-    <div class="hint">
-      No default replay was found. Export one from Python and load it here.
-      <br /><br />
-      Example:
-      <br />
-      <code>python main.py --mode spatial_v1_prototype --days 120 --households 1 --members 6 --artifact --out viewer/public/demo-spatial.json</code>
-    </div>
-  `;
-  console.warn(error);
+async function initialize() {
+  try {
+    await connectLive({ autoPlay: true });
+    return;
+  } catch (error) {
+    setPlaying(false);
+  }
+
+  try {
+    const artifact = await loadArtifactFromUrl(artifactPath);
+    setArtifact(artifact, { source: "replay" });
+  } catch (error) {
+    setPlaying(false);
+    updateStatus({});
+    setSource("awaiting-data");
+    updateUsageCopy(`No live service was found at ${state.liveUrl} and no replay artifact was available. Start spatial_live_service.py or export demo-spatial.json.`);
+    document.querySelector("#agent-card").innerHTML = `
+      <div class="hint">
+        Start the live service:
+        <br /><br />
+        <code>python spatial_live_service.py --port 8765</code>
+        <br /><br />
+        Or export a replay:
+        <br /><br />
+        <code>python main.py --mode spatial_v1_prototype --days 120 --households 1 --members 6 --artifact --out viewer/public/demo-spatial.json</code>
+      </div>
+    `;
+  }
 }
+
+await initialize();
