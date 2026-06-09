@@ -1,4 +1,4 @@
-import assumptions
+from . import assumptions
 
 class Farm:
     def __init__(self, name="Farm"):

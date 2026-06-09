@@ -25,4 +25,6 @@ class SimulationArtifact:
         df = pd.DataFrame(self.time_series)
         if "day" in df.columns:
             df = df.sort_values("day").set_index("day")
+        elif "tick" in df.columns:
+            df = df.sort_values("tick").set_index("tick")
         return df

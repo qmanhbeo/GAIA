@@ -1,7 +1,7 @@
 import math
 import random
 
-import assumptions
+from . import assumptions
 
 class Weather:
     """

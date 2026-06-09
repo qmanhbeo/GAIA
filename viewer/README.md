@@ -37,7 +37,7 @@ Press `Ctrl-C` once to stop both.
 From the repo root, export a replay artifact:
 
 ```bash
-python main.py --mode spatial_v1_prototype --days 120 --households 1 --members 6 --grid-width 18 --grid-height 12 --artifact --out viewer/public/demo-spatial.json
+python main.py --days 120 --households 1 --members 6 --grid-width 18 --grid-height 12 --artifact --out viewer/public/demo-spatial.json
 ```
 
 Then start the viewer:

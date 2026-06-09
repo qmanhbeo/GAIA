@@ -1,7 +1,7 @@
 import random
 import uuid
 
-import assumptions
+from . import assumptions
 
 class Member:
     def __init__(self, name=None, age=None, gender=None):

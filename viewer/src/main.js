@@ -861,7 +861,7 @@ async function initialize() {
         <br /><br />
         Or export a replay:
         <br /><br />
-        <code>python main.py --mode spatial_v1_prototype --days 120 --households 1 --members 6 --artifact --out viewer/public/demo-spatial.json</code>
+        <code>python main.py --days 120 --households 1 --members 6 --artifact --out viewer/public/demo-spatial.json</code>
       </div>
     `;
   }

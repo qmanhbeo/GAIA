@@ -20,8 +20,12 @@ node_modules/
 viewer/node_modules/
 viewer/dist/
 
+# Test cache
+.pytest_cache/
+
 # Generated outputs
 out.json
+out_*.json
 *.csv
 *.log
 

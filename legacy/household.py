@@ -1,7 +1,7 @@
-from member import Member
 import random
 
-import assumptions
+from . import assumptions
+from .member import Member
 
 class Household:
     def __init__(self, name=None, num_members=3):

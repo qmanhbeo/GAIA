@@ -2,31 +2,69 @@
 from __future__ import annotations
 
 import random
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 import numpy as np
 
-import assumptions
-from assumptions import apply_legacy_assumptions
-from gaia_config import LEGACY_MODE, SimulationConfig
-from household import Household
-from farm import Farm
-from water import WaterSource
-from weather import Weather
-from simLogger import SimulationLogger
+from . import assumptions
+from .assumptions import DEFAULT_LEGACY_ASSUMPTIONS, LegacyAssumptions, apply_legacy_assumptions
+from .farm import Farm
+from .household import Household
+from .simLogger import SimulationLogger
+from .water import WaterSource
+from .weather import Weather
 from simulation_artifact import SimulationArtifact
+
+
+LEGACY_MODE = "legacy_v0_2"
+
+
+@dataclass(frozen=True)
+class LegacySimulationConfig:
+    days: int = 300
+    seed: int = 42
+    num_households: int = 1
+    members_per_household: int = 20
+    mode: str = LEGACY_MODE
+    snapshot_frequency: int = 0
+    assumptions: LegacyAssumptions = field(default_factory=lambda: DEFAULT_LEGACY_ASSUMPTIONS)
+
+    def __post_init__(self) -> None:
+        positive_fields = {
+            "days": self.days,
+            "num_households": self.num_households,
+            "members_per_household": self.members_per_household,
+        }
+        for name, value in positive_fields.items():
+            if value < 1:
+                raise ValueError(f"{name} must be >= 1")
+        if self.snapshot_frequency < 0:
+            raise ValueError("snapshot_frequency must be >= 0")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "LegacySimulationConfig":
+        values = dict(payload)
+        assumptions_payload = values.get("assumptions")
+        if isinstance(assumptions_payload, dict):
+            values["assumptions"] = LegacyAssumptions.from_dict(assumptions_payload)
+        return cls(**values)
 
 
 class SimulationEngine:
     def __init__(
         self,
-        config: SimulationConfig | None = None,
+        config: LegacySimulationConfig | None = None,
         *,
         num_households=1,
         members_per_household=50,
         days=200,
         seed=42,
     ):
-        self.config = config or SimulationConfig(
+        self.config = config or LegacySimulationConfig(
             days=days,
             seed=seed,
             num_households=num_households,
