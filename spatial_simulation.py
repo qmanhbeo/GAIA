@@ -6,6 +6,8 @@ from typing import Any
 
 from gaia_config import SPATIAL_MODE, SimulationConfig
 from simulation_artifact import SimulationArtifact
+from rules.decision import DecisionRule
+from rules.resources import ResourceRule
 
 
 SPATIAL_ENGINE_VERSION = "spatial-v1d-food-carrying"
@@ -204,6 +206,14 @@ class SpatialPrototypeEngine:
             "water_stock": [],
         }
         self.snapshots: list[dict[str, Any]] = []
+        self.decision_rule = DecisionRule(
+            hunger_home_threshold=HUNGER_HOME_THRESHOLD,
+            home_meal_size=HOME_MEAL_SIZE,
+            thirst_water_threshold=THIRST_WATER_THRESHOLD,
+        )
+        self.resource_rule = ResourceRule()
+        self.events: list[dict[str, Any]] = []
+        self.event_log: list[dict[str, Any]] = []
         self._record_snapshot(force=True)
 
     @property
@@ -434,23 +444,6 @@ class SpatialPrototypeEngine:
                 return node
         return self._node_by_kind("home", preferred_home=(agent.home_x, agent.home_y))
 
-    def _choose_plan(self, agent: SpatialAgent) -> tuple[SpatialNode, str]:
-        home = self._home_for_agent(agent)
-        if agent.carried_food > 0:
-            return home, "carrying_food_home"
-        if agent.hunger >= HUNGER_HOME_THRESHOLD:
-            if home.stock >= HOME_MEAL_SIZE:
-                return home, "seeking_home_food"
-            return self._node_by_kind("food"), "seeking_food"
-        if agent.thirst >= THIRST_WATER_THRESHOLD:
-            return self._node_by_kind("water"), "seeking_water"
-        if home.stock < home.capacity and agent.carried_food < agent.carry_capacity:
-            return self._node_by_kind("food"), "seeking_food"
-        return home, "resting"
-
-    def _choose_target(self, agent: SpatialAgent) -> SpatialNode:
-        return self._choose_plan(agent)[0]
-
     def _tile(self, position: tuple[int, int]) -> SpatialTile:
         return self.tiles[position]
 
@@ -572,17 +565,20 @@ class SpatialPrototypeEngine:
                 agent.hunger = max(0.0, agent.hunger - NODE_MEAL_HUNGER_RELIEF)
                 agent.state = "eating_at_node"
                 agent.last_action = "eat_at_node"
+                self._record_event("eat_at_node", agent=agent, node=node, amount=NODE_MEAL_SIZE)
             elif agent.carried_food < agent.carry_capacity and home.stock < home.capacity and node.stock > 0:
                 amount = min(GATHER_AMOUNT, agent.carry_capacity - agent.carried_food, home.capacity - home.stock, node.stock)
                 node.stock = max(0.0, node.stock - amount)
                 agent.carried_food += amount
                 agent.state = "gathering_food"
                 agent.last_action = "gather_food"
+                self._record_event("gather_food", agent=agent, node=node, amount=amount)
             elif node.stock >= NODE_MEAL_SIZE and agent.hunger >= HUNGER_HOME_THRESHOLD:
                 node.stock = max(0.0, node.stock - NODE_MEAL_SIZE)
                 agent.hunger = max(0.0, agent.hunger - NODE_MEAL_HUNGER_RELIEF)
                 agent.state = "eating_at_node"
                 agent.last_action = "eat_at_node"
+                self._record_event("eat_at_node", agent=agent, node=node, amount=NODE_MEAL_SIZE)
             else:
                 agent.state = "waiting"
                 agent.last_action = "wait:food"
@@ -592,6 +588,7 @@ class SpatialPrototypeEngine:
                 agent.thirst = max(0.0, agent.thirst - 0.74)
                 agent.state = "drinking"
                 agent.last_action = "drink"
+                self._record_event("drink", agent=agent, node=node, amount=0.22)
             else:
                 agent.state = "waiting"
                 agent.last_action = "wait:water"
@@ -606,12 +603,14 @@ class SpatialPrototypeEngine:
             agent.carried_food -= amount
             agent.state = "depositing_food"
             agent.last_action = "deposit_food"
+            self._record_event("deposit_food", agent=agent, node=home, amount=amount)
             return
         if agent.hunger >= HUNGER_HOME_THRESHOLD and home.stock >= HOME_MEAL_SIZE:
             home.stock = max(0.0, home.stock - HOME_MEAL_SIZE)
             agent.hunger = max(0.0, agent.hunger - HOME_MEAL_HUNGER_RELIEF)
             agent.state = "eating_at_home"
             agent.last_action = "eat_at_home"
+            self._record_event("eat_at_home", agent=agent, node=home, amount=HOME_MEAL_SIZE)
             return
         agent.health = min(1.0, agent.health + 0.012)
         agent.state = "resting"
@@ -640,9 +639,10 @@ class SpatialPrototypeEngine:
             agent.last_action = "dead"
             agent.path_length = None
             agent.move_cooldown = 0
+            self._record_event("agent_died", agent=agent)
             return
 
-        target, travel_state = self._choose_plan(agent)
+        target, travel_state = self.decision_rule.choose_plan(self, agent)
         agent.target_id = target.id
         agent.target_kind = target.kind
 
@@ -682,10 +682,25 @@ class SpatialPrototypeEngine:
             return
         self.snapshots.append(self.snapshot())
 
+    def _record_event(self, event: str, agent: SpatialAgent | None = None, node: SpatialNode | None = None, amount: float | None = None) -> None:
+        entry: dict[str, Any] = {"tick": self.tick, "event": event}
+        if agent is not None:
+            entry["agent_id"] = agent.id
+            entry["agent_label"] = agent.label
+        if node is not None:
+            entry["node_id"] = node.id
+            entry["node_kind"] = node.kind
+        if amount is not None:
+            entry["amount"] = round(amount, 4)
+        self.events.append(entry)
+        self.event_log.append(entry)
+        if len(self.event_log) > 200:
+            self.event_log = self.event_log[-200:]
+
     def step(self) -> dict[str, Any]:
         self.clock.advance()
-        for node in self.nodes:
-            node.stock = min(node.capacity, node.stock + node.replenish_per_tick)
+        self.events.clear()
+        self.resource_rule.apply(self)
         occupied = self._occupancy_counts()
         for agent in self.agents:
             self._update_agent(agent, occupied)
@@ -746,7 +761,8 @@ class SpatialPrototypeEngine:
             "agents": [agent.as_dict() for agent in self.agents],
             "metrics": metrics,
             "selected_agent": selected,
-            "events": [],
+            "events": list(self.events),
+            "event_log": list(self.event_log),
         }
 
     def build_artifact(self) -> SimulationArtifact:

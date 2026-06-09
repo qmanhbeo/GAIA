@@ -8,7 +8,14 @@ import unittest
 from gaia_config import DEFAULT_LAYOUT, DEFAULT_VIEWER_SPEED, SPATIAL_MODE, SimulationConfig
 from main import run_simulation_artifact
 from spatial_live_service import SpatialLiveSession
-from spatial_simulation import SpatialPrototypeEngine
+from spatial_simulation import (
+    HOME_MEAL_SIZE,
+    HUNGER_HOME_THRESHOLD,
+    THIRST_WATER_THRESHOLD,
+    SpatialPrototypeEngine,
+)
+from rules.decision import DecisionRule
+from rules.resources import ResourceRule
 
 
 class MainEntrypointTests(unittest.TestCase):
@@ -357,6 +364,220 @@ class SpatialEngineTests(unittest.TestCase):
         self.assertEqual(reset["snapshot"]["tick"], 0)
         self.assertEqual(reset["metadata"]["config"]["seed"], 9)
         self.assertEqual(reset["metadata"]["config"]["grid_width"], 12)
+
+
+class DecisionRuleTests(unittest.TestCase):
+    def setUp(self):
+        self.config = SimulationConfig(
+            days=5,
+            seed=10,
+            num_households=1,
+            members_per_household=1,
+            grid_width=12,
+            grid_height=10,
+        )
+        self.engine = SpatialPrototypeEngine(config=self.config)
+        self.agent = self.engine.agents[0]
+        self.home = self.engine._home_for_agent(self.agent)
+        self.food = self.engine._node_by_kind("food")
+        self.water = self.engine._node_by_kind("water")
+
+    def test_plan_carrying_food_returns_home(self):
+        self.agent.carried_food = 0.5
+        target, state = self.engine.decision_rule.choose_plan(self.engine, self.agent)
+        self.assertEqual(target.kind, "home")
+        self.assertEqual(state, "carrying_food_home")
+
+    def test_plan_hungry_with_home_food_seeks_home(self):
+        self.home.stock = 1.0
+        self.agent.hunger = HUNGER_HOME_THRESHOLD + 0.1
+        self.agent.thirst = 0.0
+        target, state = self.engine.decision_rule.choose_plan(self.engine, self.agent)
+        self.assertEqual(target.kind, "home")
+        self.assertEqual(state, "seeking_home_food")
+
+    def test_plan_hungry_no_home_food_seeks_food_node(self):
+        self.home.stock = 0.0
+        self.agent.hunger = HUNGER_HOME_THRESHOLD + 0.1
+        self.agent.thirst = 0.0
+        target, state = self.engine.decision_rule.choose_plan(self.engine, self.agent)
+        self.assertEqual(target.kind, "food")
+        self.assertEqual(state, "seeking_food")
+
+    def test_plan_thirsty_seeks_water(self):
+        self.agent.hunger = 0.0
+        self.agent.thirst = THIRST_WATER_THRESHOLD + 0.1
+        target, state = self.engine.decision_rule.choose_plan(self.engine, self.agent)
+        self.assertEqual(target.kind, "water")
+        self.assertEqual(state, "seeking_water")
+
+    def test_plan_home_below_capacity_seeks_food(self):
+        self.home.stock = 0.0
+        self.agent.hunger = 0.0
+        self.agent.thirst = 0.0
+        self.agent.carried_food = 0.0
+        target, state = self.engine.decision_rule.choose_plan(self.engine, self.agent)
+        self.assertEqual(target.kind, "food")
+        self.assertEqual(state, "seeking_food")
+
+    def test_plan_resting_returns_home(self):
+        self.home.stock = self.home.capacity
+        self.agent.hunger = 0.0
+        self.agent.thirst = 0.0
+        self.agent.carried_food = 0.0
+        target, state = self.engine.decision_rule.choose_plan(self.engine, self.agent)
+        self.assertEqual(target.kind, "home")
+        self.assertEqual(state, "resting")
+
+    def test_plan_uses_engine_thresholds_not_hardcoded(self):
+        rule = self.engine.decision_rule
+        self.assertEqual(rule.hunger_home_threshold, HUNGER_HOME_THRESHOLD)
+        self.assertEqual(rule.home_meal_size, HOME_MEAL_SIZE)
+        self.assertEqual(rule.thirst_water_threshold, THIRST_WATER_THRESHOLD)
+
+
+class ResourceRuleTests(unittest.TestCase):
+    def test_replenish_nodes_without_exceeding_capacity(self):
+        config = SimulationConfig(
+            days=3,
+            seed=1,
+            num_households=1,
+            members_per_household=1,
+            grid_width=8,
+            grid_height=6,
+        )
+        engine = SpatialPrototypeEngine(config=config)
+        for node in engine.nodes:
+            node.stock = 0.0
+            node.replenish_per_tick = 0.5
+        rule = ResourceRule()
+        rule.apply(engine)
+        for node in engine.nodes:
+            self.assertGreater(node.stock, 0.0)
+            self.assertLessEqual(node.stock, node.capacity)
+
+    def test_replenish_zero_rate_does_not_change_stock(self):
+        config = SimulationConfig(
+            days=3,
+            seed=2,
+            num_households=1,
+            members_per_household=1,
+            grid_width=8,
+            grid_height=6,
+        )
+        engine = SpatialPrototypeEngine(config=config)
+        for node in engine.nodes:
+            node.stock = 1.23
+            node.replenish_per_tick = 0.0
+        rule = ResourceRule()
+        rule.apply(engine)
+        for node in engine.nodes:
+            self.assertEqual(node.stock, 1.23)
+
+
+class RuleIntegrationTests(unittest.TestCase):
+    def test_engine_has_decision_and_resource_rules(self):
+        config = SimulationConfig(
+            days=4,
+            seed=7,
+            num_households=1,
+            members_per_household=1,
+            grid_width=8,
+            grid_height=6,
+        )
+        engine = SpatialPrototypeEngine(config=config)
+        self.assertIsInstance(engine.decision_rule, DecisionRule)
+        self.assertIsInstance(engine.resource_rule, ResourceRule)
+        self.assertGreater(engine.decision_rule.hunger_home_threshold, 0.0)
+
+
+class EventLogTests(unittest.TestCase):
+    def test_gather_food_records_event(self):
+        engine = SpatialPrototypeEngine(
+            config=SimulationConfig(
+                days=4, seed=30, num_households=1, members_per_household=1, grid_width=12, grid_height=10,
+            )
+        )
+        agent = engine.agents[0]
+        food = engine._node_by_kind("food")
+        home = engine._home_for_agent(agent)
+        food.replenish_per_tick = 0.0
+        home.stock = 0.0
+        agent.x = food.x
+        agent.y = food.y
+        agent.hunger = 0.1
+        agent.thirst = 0.1
+        engine.step()
+        self.assertIn("gather_food", [e["event"] for e in engine.events])
+
+    def test_deposit_food_records_event(self):
+        engine = SpatialPrototypeEngine(
+            config=SimulationConfig(
+                days=4, seed=31, num_households=1, members_per_household=1, grid_width=8, grid_height=6,
+            )
+        )
+        agent = engine.agents[0]
+        home = engine._home_for_agent(agent)
+        agent.x = home.x
+        agent.y = home.y
+        agent.carried_food = 0.5
+        home.stock = 0.0
+        engine.step()
+        self.assertIn("deposit_food", [e["event"] for e in engine.events])
+
+    def test_eat_at_home_records_event(self):
+        engine = SpatialPrototypeEngine(
+            config=SimulationConfig(
+                days=4, seed=32, num_households=1, members_per_household=1, grid_width=8, grid_height=6,
+            )
+        )
+        agent = engine.agents[0]
+        home = engine._home_for_agent(agent)
+        agent.x = home.x
+        agent.y = home.y
+        agent.carried_food = 0.0
+        agent.hunger = 0.6
+        home.stock = 5.0
+        engine.step()
+        self.assertIn("eat_at_home", [e["event"] for e in engine.events])
+
+    def test_drink_records_event(self):
+        engine = SpatialPrototypeEngine(
+            config=SimulationConfig(
+                days=4, seed=33, num_households=1, members_per_household=1, grid_width=8, grid_height=6,
+            )
+        )
+        agent = engine.agents[0]
+        water = engine._node_by_kind("water")
+        agent.x = water.x
+        agent.y = water.y
+        agent.carried_food = 0.0
+        agent.hunger = 0.1
+        agent.thirst = 0.9
+        engine.step()
+        self.assertIn("drink", [e["event"] for e in engine.events])
+
+    def test_snapshot_events_match_current_tick(self):
+        engine = SpatialPrototypeEngine(
+            config=SimulationConfig(
+                days=4, seed=5, num_households=1, members_per_household=1, grid_width=8, grid_height=6,
+            )
+        )
+        for _ in range(3):
+            snapshot = engine.step()
+            for entry in snapshot["events"]:
+                self.assertEqual(entry["tick"], snapshot["tick"])
+
+    def test_event_log_is_deterministic(self):
+        config = SimulationConfig(
+            days=4, seed=42, num_households=1, members_per_household=1, grid_width=8, grid_height=6,
+        )
+        first = SpatialPrototypeEngine(config=config)
+        second = SpatialPrototypeEngine(config=config)
+        for _ in range(5):
+            first.step()
+            second.step()
+        self.assertEqual(first.event_log, second.event_log)
 
 
 if __name__ == "__main__":

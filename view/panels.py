@@ -50,6 +50,27 @@ class Panels:
         for line in self._selected_lines(snapshot, selected_ref):
             cursor_y = self._draw_text(surface, fonts["body"], line, self.x + 22, cursor_y, (196, 213, 222))
 
+        cursor_y += 14
+        cursor_y = self._draw_text(surface, fonts["heading"], "Events", self.x + 22, cursor_y, (238, 246, 247))
+        event_log = snapshot.get("event_log", [])
+        if selected_ref is not None:
+            key = "agent_id" if selected_ref[0] == "agent" else "node_id"
+            filtered = [e for e in event_log if e.get(key) == selected_ref[1]]
+        else:
+            filtered = event_log
+        if not filtered:
+            cursor_y = self._draw_text(surface, fonts["small"], "None", self.x + 22, cursor_y, (151, 169, 180))
+        else:
+            for entry in filtered[-5:]:
+                tick = entry.get("tick", "?")
+                label = entry.get("agent_label", entry.get("agent_id", "?"))
+                event = entry.get("event", "?")
+                text = f"{tick} {label} {event}"
+                amount = entry.get("amount")
+                if amount is not None:
+                    text += f" {amount:.2f}"
+                cursor_y = self._draw_text(surface, fonts["small"], text, self.x + 22, cursor_y, (151, 169, 180))
+
         controls = ["Space pause/play", "N or Right step", "+/- speed", "Esc quit", "Click entity select"]
         cursor_y = max(cursor_y + 18, self.height - 132)
         cursor_y = self._draw_text(surface, fonts["heading"], "Controls", self.x + 22, cursor_y, (238, 246, 247))
