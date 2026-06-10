@@ -4,6 +4,7 @@ import importlib
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
 
 from analysis.audit_survival_budget import audit_config, compute_agent_budget, project_death_tick
 from analysis.calibrate_survival_budget import run_sweep
@@ -1341,7 +1342,7 @@ class RestSafetyScaffoldTests(unittest.TestCase):
 
     def test_fatigue_increases_after_one_tick(self):
         phys = self.config.physiology
-        self.engine.step()
+        self.engine._apply_base_fatigue(self.agent)
         self.assertAlmostEqual(self.agent.fatigue, phys.fatigue_increase_per_tick, places=4)
 
     def test_fatigue_is_clamped_to_one(self):
@@ -1525,6 +1526,84 @@ class FatigueRecoveryTests(unittest.TestCase):
             camp_candidates = [(n, t) for n, t in candidates if n.kind == "camp"]
             self.assertEqual(len(camp_candidates), 0,
                 "camps should not appear in candidates for {}".format(need_name))
+
+
+class ActivityFatigueTests(unittest.TestCase):
+    def setUp(self):
+        self.config = SimulationConfig(
+            days=5, seed=10, num_households=1, members_per_household=2,
+            grid_width=12, grid_height=10,
+        )
+        self.engine = SpatialPrototypeEngine(config=self.config)
+        self.agent = self.engine.agents[0]
+        self.phys = self.config.physiology
+        self.home = self.engine._home_for_agent(self.agent)
+
+    def _place_at_home(self):
+        self.agent.x = self.home.x
+        self.agent.y = self.home.y
+        self.agent.carried_food = 0.0
+        self.agent.hunger = 0.0
+        self.agent.thirst = 0.0
+        self.agent.fatigue = 0.3
+
+    def test_base_fatigue_applied_when_idle(self):
+        self.agent.fatigue = 0.0
+        self.engine._apply_base_fatigue(self.agent)
+        self.assertAlmostEqual(self.agent.fatigue, self.phys.fatigue_increase_per_tick, places=4)
+
+    def test_movement_adds_extra_fatigue_when_not_carrying(self):
+        self.agent.fatigue = 0.0
+        self.agent.carried_food = 0.0
+        self.engine._apply_movement_fatigue(self.agent)
+        expected = self.phys.movement_fatigue_per_step
+        self.assertAlmostEqual(self.agent.fatigue, 0.0 + expected, places=4)
+
+    def test_no_movement_no_movement_fatigue(self):
+        self._place_at_home()
+        self.home.stock = self.home.capacity
+        with patch.object(self.engine, '_apply_movement_fatigue') as mock:
+            self.engine.step()
+            mock.assert_not_called()
+
+    def test_carrying_food_scales_movement_fatigue(self):
+        self.agent.fatigue = 0.0
+        self.agent.carried_food = 0.5 * self.agent.carry_capacity
+        self.engine._apply_movement_fatigue(self.agent)
+        load_ratio = 0.5
+        expected = self.phys.movement_fatigue_per_step + self.phys.carrying_fatigue_per_step_at_full_load * load_ratio
+        self.assertAlmostEqual(self.agent.fatigue, 0.0 + expected, places=4)
+
+    def test_full_load_carrying_fatigue_caps_at_full_load(self):
+        self.agent.fatigue = 0.0
+        self.agent.carried_food = self.agent.carry_capacity * 2.0
+        self.engine._apply_movement_fatigue(self.agent)
+        load_ratio = 1.0
+        expected = self.phys.movement_fatigue_per_step + self.phys.carrying_fatigue_per_step_at_full_load * load_ratio
+        self.assertAlmostEqual(self.agent.fatigue, 0.0 + expected, places=4)
+
+    def test_zero_carry_capacity_safe(self):
+        self.agent.fatigue = 0.0
+        self.agent.carry_capacity = 0.0
+        self.agent.carried_food = 0.5
+        self.engine._apply_movement_fatigue(self.agent)
+        expected = self.phys.movement_fatigue_per_step
+        self.assertAlmostEqual(self.agent.fatigue, 0.0 + expected, places=4)
+
+    def test_fatigue_clamped_to_one_with_activity_costs(self):
+        self.agent.fatigue = 0.97
+        self.agent.carried_food = self.agent.carry_capacity
+        self.engine._apply_base_fatigue(self.agent)
+        self.engine._apply_movement_fatigue(self.agent)
+        self.assertLessEqual(self.agent.fatigue, 1.0)
+
+    def test_decision_rule_unchanged(self):
+        import inspect
+        from rules.decision import DecisionRule
+        source = inspect.getsource(DecisionRule)
+        self.assertIn("def choose_plan", source)
+        self.assertNotIn("fatigue", source,
+            "DecisionRule should not reference fatigue")
 
 
 if __name__ == "__main__":

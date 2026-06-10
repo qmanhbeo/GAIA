@@ -531,6 +531,20 @@ class SpatialPrototypeEngine:
             node.rest_safety + phys.group_rest_safety_bonus_per_nearby_agent * nearby_others,
         )
 
+    def _apply_base_fatigue(self, agent: SpatialAgent) -> None:
+        phys = self.config.physiology
+        agent.fatigue = min(1.0, agent.fatigue + phys.fatigue_increase_per_tick)
+
+    def _apply_movement_fatigue(self, agent: SpatialAgent) -> None:
+        phys = self.config.physiology
+        gain = phys.movement_fatigue_per_step
+        if agent.carry_capacity > 0:
+            load_ratio = max(0.0, min(1.0, agent.carried_food / agent.carry_capacity))
+        else:
+            load_ratio = 0.0
+        gain += phys.carrying_fatigue_per_step_at_full_load * load_ratio
+        agent.fatigue = min(1.0, agent.fatigue + gain)
+
     def _tile(self, position: tuple[int, int]) -> SpatialTile:
         return self.tiles[position]
 
@@ -615,7 +629,7 @@ class SpatialPrototypeEngine:
         node: SpatialNode,
         occupied: dict[tuple[int, int], int],
         travel_state: str,
-    ) -> None:
+    ) -> bool:
         current = (agent.x, agent.y)
         goal = (node.x, node.y)
         self._release_occupancy(occupied, current)
@@ -625,7 +639,7 @@ class SpatialPrototypeEngine:
             agent.state = "blocked"
             agent.last_action = f"blocked:{node.kind}"
             agent.path_length = None
-            return
+            return False
 
         next_position = path[1]
         next_tile = self._tile(next_position)
@@ -634,7 +648,7 @@ class SpatialPrototypeEngine:
             agent.state = "waiting"
             agent.last_action = f"wait:occupied:{node.kind}"
             agent.path_length = len(path) - 1
-            return
+            return False
 
         agent.x, agent.y = next_position
         agent.move_cooldown = max(0, next_tile.movement_cost - 1)
@@ -642,6 +656,7 @@ class SpatialPrototypeEngine:
         agent.state = travel_state
         agent.last_action = f"move:{next_tile.kind}"
         self._reserve_occupancy(occupied, next_position)
+        return True
 
     def _consume_from_node(self, agent: SpatialAgent, node: SpatialNode) -> None:
         agent.path_length = 0
@@ -734,7 +749,7 @@ class SpatialPrototypeEngine:
         phys = self.config.physiology
         agent.hunger = min(1.0, agent.hunger + phys.hunger_increase_per_tick)
         agent.thirst = min(1.0, agent.thirst + phys.thirst_increase_per_tick)
-        agent.fatigue = min(1.0, agent.fatigue + phys.fatigue_increase_per_tick)
+        self._apply_base_fatigue(agent)
         if agent.hunger > phys.hunger_damage_threshold:
             agent.health = max(0.0, agent.health - phys.hunger_damage_rate)
         if agent.thirst > phys.thirst_damage_threshold:
@@ -765,7 +780,9 @@ class SpatialPrototypeEngine:
         if (agent.x, agent.y) == (target.x, target.y):
             self._consume_from_node(agent, target)
         else:
-            self._move_agent_toward(agent, target, occupied, travel_state)
+            moved = self._move_agent_toward(agent, target, occupied, travel_state)
+            if moved:
+                self._apply_movement_fatigue(agent)
 
         for node in self.nodes:
             if (agent.x, agent.y) == (node.x, node.y):

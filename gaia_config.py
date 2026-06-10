@@ -27,6 +27,10 @@ class PhysiologyConfig:
     fatigue_recovery_per_tick: float = 0.08
     group_rest_safety_bonus_per_nearby_agent: float = 0.1
 
+    # Activity-sensitive fatigue costs applied when the agent moves.
+    movement_fatigue_per_step: float = 0.01
+    carrying_fatigue_per_step_at_full_load: float = 0.02
+
 
 @dataclass(frozen=True)
 class SpatialLayoutConfig:
