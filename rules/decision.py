@@ -12,12 +12,63 @@ from typing import Any
 
 
 @dataclass
+class NeedSpec:
+    name: str
+    agent_attr: str
+    critical_threshold: float
+    mild_threshold: float | None = None
+
+
+@dataclass
+class SatisfierSpec:
+    need_name: str
+    task_name: str
+    target_kind: str
+    is_home_satisfier: bool = False
+    requires_stock: bool = True
+    min_stock: float | None = None
+
+
+@dataclass
 class DecisionRule:
     hunger_home_threshold: float = 0.5
     home_meal_size: float = 0.25
     thirst_water_threshold: float = 0.86
     hunger_critical: float = 0.88
     thirst_critical: float = 0.91
+
+    def __post_init__(self) -> None:
+        self.NEEDS: list[NeedSpec] = [
+            NeedSpec(
+                name="hunger", agent_attr="hunger",
+                critical_threshold=self.hunger_critical,
+                mild_threshold=self.hunger_home_threshold,
+            ),
+            NeedSpec(
+                name="thirst", agent_attr="thirst",
+                critical_threshold=self.thirst_critical,
+                mild_threshold=self.thirst_water_threshold,
+            ),
+        ]
+        self.SATISFIERS: dict[str, list[SatisfierSpec]] = {
+            "hunger": [
+                SatisfierSpec(
+                    need_name="hunger", task_name="seek_food",
+                    target_kind="food", requires_stock=True,
+                ),
+                SatisfierSpec(
+                    need_name="hunger", task_name="seek_home_food",
+                    target_kind="home", is_home_satisfier=True,
+                    requires_stock=True, min_stock=self.home_meal_size,
+                ),
+            ],
+            "thirst": [
+                SatisfierSpec(
+                    need_name="thirst", task_name="seek_water",
+                    target_kind="water", requires_stock=True,
+                ),
+            ],
+        }
 
     # ------------------------------------------------------------------
     # Path / time helpers
@@ -84,6 +135,39 @@ class DecisionRule:
         return engine._home_for_agent(agent)
 
     # ------------------------------------------------------------------
+    # Spec-driven helpers
+    # ------------------------------------------------------------------
+
+    def _candidates_for_need(self, engine: Any, agent: Any, need_name: str) -> list[tuple[Any, str]]:
+        candidates: list[tuple[Any, str]] = []
+        home = engine._home_for_agent(agent)
+        for sat in self.SATISFIERS.get(need_name, []):
+            if sat.is_home_satisfier:
+                if sat.min_stock is not None and home.stock < sat.min_stock:
+                    continue
+                candidates.append((home, sat.task_name))
+            else:
+                for node in engine.nodes:
+                    if node.kind == sat.target_kind:
+                        candidates.append((node, sat.task_name))
+        return candidates
+
+    def _satisfier_for_task(self, task: str) -> SatisfierSpec | None:
+        for satisfiers in self.SATISFIERS.values():
+            for sat in satisfiers:
+                if sat.task_name == task:
+                    return sat
+        return None
+
+    def _candidate_is_depleted(self, node: Any, task: str) -> bool:
+        sat = self._satisfier_for_task(task)
+        if sat is None or not sat.requires_stock:
+            return False
+        if sat.min_stock is not None:
+            return node.stock < sat.min_stock
+        return node.stock <= 0
+
+    # ------------------------------------------------------------------
     # Viability / selection
     # ------------------------------------------------------------------
 
@@ -93,12 +177,8 @@ class DecisionRule:
         target = next((n for n in engine.nodes if n.id == agent.task_target_id), None)
         if target is None:
             return False
-        if target.kind in ("food", "water") and target.stock <= 0:
+        if self._candidate_is_depleted(target, agent.current_task):
             return False
-        if agent.current_task == "seek_home_food":
-            home = engine._home_for_agent(agent)
-            if home.stock < self.home_meal_size:
-                return False
         if agent.current_task == "return_home_with_food":
             if agent.carried_food <= 0:
                 return False
@@ -126,9 +206,7 @@ class DecisionRule:
         best_node, best_task, best_slack = None, None, float("-inf")
 
         for node, task in candidates:
-            if node.kind in ("food", "water") and node.stock <= 0:
-                continue
-            if task == "seek_home_food" and node.stock < self.home_meal_size:
+            if self._candidate_is_depleted(node, task):
                 continue
             eta = self._compute_eta(engine, agent, node)
             if eta is None:
@@ -141,9 +219,7 @@ class DecisionRule:
         # Fallback: first reachable candidate with stock
         if best_node is None:
             for node, task in candidates:
-                if node.kind in ("food", "water") and node.stock <= 0:
-                    continue
-                if task == "seek_home_food" and node.stock < self.home_meal_size:
+                if self._candidate_is_depleted(node, task):
                     continue
                 if self._compute_eta(engine, agent, node) is not None:
                     return node, task
@@ -205,29 +281,23 @@ class DecisionRule:
 
         # C. Fresh task selection — critical needs first
         if agent.thirst >= self.thirst_critical:
-            water, task = self._best_viable_target(
-                engine, agent, [(engine._node_by_kind("water"), "seek_water")]
-            )
+            candidates = self._candidates_for_need(engine, agent, "thirst")
+            water, task = self._best_viable_target(engine, agent, candidates)
             self._commit(agent, task, water)
             return water, "seeking_water"
         if agent.hunger >= self.hunger_critical:
-            candidates = [(n, "seek_food") for n in engine.nodes if n.kind == "food"]
-            if home.stock >= self.home_meal_size:
-                candidates.append((home, "seek_home_food"))
+            candidates = self._candidates_for_need(engine, agent, "hunger")
             target, task = self._best_viable_target(engine, agent, candidates)
             self._commit(agent, task, target)
             return target, self._task_to_state(task)
         # Mild needs — thirst before hunger
         if agent.thirst >= self.thirst_water_threshold:
-            water, task = self._best_viable_target(
-                engine, agent, [(engine._node_by_kind("water"), "seek_water")]
-            )
+            candidates = self._candidates_for_need(engine, agent, "thirst")
+            water, task = self._best_viable_target(engine, agent, candidates)
             self._commit(agent, task, water)
             return water, "seeking_water"
         if agent.hunger >= self.hunger_home_threshold:
-            candidates = [(n, "seek_food") for n in engine.nodes if n.kind == "food"]
-            if home.stock >= self.home_meal_size:
-                candidates.append((home, "seek_home_food"))
+            candidates = self._candidates_for_need(engine, agent, "hunger")
             target, task = self._best_viable_target(engine, agent, candidates)
             self._commit(agent, task, target)
             return target, self._task_to_state(task)

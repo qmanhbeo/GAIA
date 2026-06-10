@@ -20,7 +20,7 @@ from spatial_simulation import (
     SpatialPrototypeEngine,
     make_camp_node,
 )
-from rules.decision import DecisionRule
+from rules.decision import DecisionRule, NeedSpec, SatisfierSpec
 from rules.resources import ResourceRule
 
 
@@ -1140,6 +1140,112 @@ class NodeMemoryTests(unittest.TestCase):
         self.assertIsInstance(entry["last_seen_stock"], float)
         self.assertIn("last_seen_tick", entry)
         self.assertIsInstance(entry["last_seen_tick"], int)
+
+    def test_decision_rule_does_not_read_node_memory(self):
+        import inspect
+        from rules.decision import DecisionRule
+        source = inspect.getsource(DecisionRule)
+        self.assertNotIn("node_memory", source)
+
+
+class NeedSpecTests(unittest.TestCase):
+    def setUp(self):
+        self.config = SimulationConfig(
+            days=5, seed=10, num_households=1, members_per_household=1,
+            grid_width=12, grid_height=10,
+        )
+        self.engine = SpatialPrototypeEngine(config=self.config)
+        self.agent = self.engine.agents[0]
+        self.home = self.engine._home_for_agent(self.agent)
+        self.food = self.engine._node_by_kind("food")
+        self.water = self.engine._node_by_kind("water")
+        self.rule = self.engine.decision_rule
+
+    def test_need_specs_exist_for_hunger_and_thirst(self):
+        need_names = [n.name for n in self.rule.NEEDS]
+        self.assertIn("hunger", need_names)
+        self.assertIn("thirst", need_names)
+
+    def test_need_spec_has_correct_thresholds(self):
+        hunger = next(n for n in self.rule.NEEDS if n.name == "hunger")
+        thirst = next(n for n in self.rule.NEEDS if n.name == "thirst")
+        self.assertEqual(hunger.critical_threshold, self.rule.hunger_critical)
+        self.assertEqual(hunger.mild_threshold, self.rule.hunger_home_threshold)
+        self.assertEqual(thirst.critical_threshold, self.rule.thirst_critical)
+        self.assertEqual(thirst.mild_threshold, self.rule.thirst_water_threshold)
+
+    def test_satisfier_specs_cover_current_tasks(self):
+        task_names = set()
+        for satisfiers in self.rule.SATISFIERS.values():
+            for sat in satisfiers:
+                task_names.add(sat.task_name)
+        self.assertIn("seek_food", task_names)
+        self.assertIn("seek_home_food", task_names)
+        self.assertIn("seek_water", task_names)
+        self.assertEqual(len(task_names), 3)
+
+    def test_candidates_for_thirst_returns_water(self):
+        candidates = self.rule._candidates_for_need(self.engine, self.agent, "thirst")
+        self.assertEqual(len(candidates), 1)
+        node, task = candidates[0]
+        self.assertEqual(node.kind, "water")
+        self.assertEqual(task, "seek_water")
+
+    def test_candidates_for_hunger_includes_food_nodes(self):
+        candidates = self.rule._candidates_for_need(self.engine, self.agent, "hunger")
+        food_nodes = [(n, t) for n, t in candidates if n.kind == "food"]
+        self.assertGreaterEqual(len(food_nodes), 1)
+        for n, t in food_nodes:
+            self.assertEqual(t, "seek_food")
+
+    def test_candidates_for_hunger_includes_home_when_stocked(self):
+        self.home.stock = 1.0
+        candidates = self.rule._candidates_for_need(self.engine, self.agent, "hunger")
+        home_candidates = [(n, t) for n, t in candidates if n.kind == "home"]
+        self.assertEqual(len(home_candidates), 1)
+        self.assertEqual(home_candidates[0][1], "seek_home_food")
+
+    def test_candidates_for_hunger_excludes_home_below_meal(self):
+        self.home.stock = 0.1
+        candidates = self.rule._candidates_for_need(self.engine, self.agent, "hunger")
+        home_candidates = [(n, t) for n, t in candidates if n.kind == "home"]
+        self.assertEqual(len(home_candidates), 0)
+
+    def test_candidate_is_depleted_rejects_empty_food(self):
+        self.food.stock = 0.0
+        self.assertTrue(self.rule._candidate_is_depleted(self.food, "seek_food"))
+
+    def test_candidate_is_depleted_accepts_stocked_food(self):
+        self.food.stock = 5.0
+        self.assertFalse(self.rule._candidate_is_depleted(self.food, "seek_food"))
+
+    def test_candidate_is_depleted_rejects_empty_water(self):
+        self.water.stock = 0.0
+        self.assertTrue(self.rule._candidate_is_depleted(self.water, "seek_water"))
+
+    def test_candidate_is_depleted_rejects_home_below_meal(self):
+        self.home.stock = 0.1
+        self.assertTrue(self.rule._candidate_is_depleted(self.home, "seek_home_food"))
+
+    def test_candidate_is_depleted_accepts_home_at_or_above_meal(self):
+        self.home.stock = 0.25
+        self.assertFalse(self.rule._candidate_is_depleted(self.home, "seek_home_food"))
+        self.home.stock = 0.5
+        self.assertFalse(self.rule._candidate_is_depleted(self.home, "seek_home_food"))
+
+    def test_candidate_is_depleted_false_for_non_satisfier_task(self):
+        self.home.stock = 0.0
+        self.assertFalse(self.rule._candidate_is_depleted(self.home, "return_home_with_food"))
+
+    def test_candidate_is_depleted_skipped_for_non_stock_satisfier(self):
+        dummy_rest = SatisfierSpec(
+            need_name="fatigue", task_name="seek_rest",
+            target_kind="home", is_home_satisfier=True,
+            requires_stock=False,
+        )
+        self.rule.SATISFIERS.setdefault("fatigue", []).append(dummy_rest)
+        self.home.stock = 0.0
+        self.assertFalse(self.rule._candidate_is_depleted(self.home, "seek_rest"))
 
     def test_decision_rule_does_not_read_node_memory(self):
         import inspect
