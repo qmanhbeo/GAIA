@@ -13,6 +13,8 @@ from rules.resources import ResourceRule
 SPATIAL_ENGINE_VERSION = "spatial-v1d-food-carrying"
 HOME_STARTING_FOOD = 2.0
 HOME_FOOD_CAPACITY = 10.0
+CAMP_CAPACITY = 2.0
+CAMP_COLOR = "#cd853f"
 AGENT_CARRY_CAPACITY = 1.0
 HOME_MEAL_SIZE = 0.25
 HOME_MEAL_HUNGER_RELIEF = 0.58
@@ -114,6 +116,20 @@ class SpatialNode:
                 "stored_food_capacity": capacity,
             }
         return payload
+
+
+def make_camp_node(id: str, x: int, y: int, label: str | None = None) -> SpatialNode:
+    return SpatialNode(
+        id=id,
+        kind="camp",
+        label=label or id,
+        x=x,
+        y=y,
+        stock=0.0,
+        capacity=CAMP_CAPACITY,
+        replenish_per_tick=0.0,
+        color=CAMP_COLOR,
+    )
 
 
 @dataclass

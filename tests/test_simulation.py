@@ -14,7 +14,10 @@ from spatial_simulation import (
     HOME_MEAL_SIZE,
     HUNGER_HOME_THRESHOLD,
     THIRST_WATER_THRESHOLD,
+    CAMP_CAPACITY,
+    CAMP_COLOR,
     SpatialPrototypeEngine,
+    make_camp_node,
 )
 from rules.decision import DecisionRule
 from rules.resources import ResourceRule
@@ -936,6 +939,85 @@ class DepletableResourceTests(unittest.TestCase):
         self.assertEqual(state, "seeking_food")
         path = self.engine._find_path((self.agent.x, self.agent.y), (target.x, target.y), {})
         self.assertIsNotNone(path)
+
+
+class CampNodeTests(unittest.TestCase):
+    def test_camp_node_can_be_added_to_engine(self):
+        config = SimulationConfig(
+            days=5, seed=10, num_households=1, members_per_household=1,
+            grid_width=12, grid_height=10,
+        )
+        engine = SpatialPrototypeEngine(config=config)
+        camp = make_camp_node("camp-1", x=5, y=5, label="Test Camp")
+        engine.nodes.append(camp)
+        snapshot = engine.snapshot()
+        camp_nodes = [n for n in snapshot["nodes"] if n["kind"] == "camp"]
+        self.assertEqual(len(camp_nodes), 1)
+        found = camp_nodes[0]
+        self.assertEqual(found["id"], "camp-1")
+        self.assertEqual(found["label"], "Test Camp")
+        self.assertEqual(found["x"], 5)
+        self.assertEqual(found["y"], 5)
+
+    def test_camp_node_appears_in_snapshot_with_expected_fields(self):
+        config = SimulationConfig(
+            days=5, seed=10, num_households=1, members_per_household=1,
+            grid_width=12, grid_height=10,
+        )
+        engine = SpatialPrototypeEngine(config=config)
+        camp = make_camp_node("camp-1", x=3, y=7)
+        engine.nodes.append(camp)
+        snapshot = engine.snapshot()
+        camp_node = next(n for n in snapshot["nodes"] if n["id"] == "camp-1")
+        self.assertEqual(camp_node["kind"], "camp")
+        self.assertEqual(camp_node["type"], "place")
+        self.assertEqual(camp_node["stock"], 0.0)
+        self.assertEqual(camp_node["capacity"], CAMP_CAPACITY)
+        self.assertAlmostEqual(camp_node["stock_ratio"], 0.0)
+        self.assertEqual(camp_node["color"], CAMP_COLOR)
+
+    def test_camp_node_does_not_change_headless_behavior(self):
+        config = SimulationConfig(
+            days=5, seed=42, num_households=1, members_per_household=2,
+            grid_width=12, grid_height=10,
+        )
+        baseline = SpatialPrototypeEngine(config=config)
+        for _ in range(5):
+            baseline.step()
+        baseline_metrics = (
+            baseline.time_series["population"][-1],
+            baseline.time_series["avg_hunger"][-1],
+            baseline.time_series["food_stock"][-1],
+            baseline.time_series["water_stock"][-1],
+        )
+        engine = SpatialPrototypeEngine(config=config)
+        engine.nodes.append(make_camp_node("camp-1", x=3, y=7))
+        for _ in range(5):
+            engine.step()
+        camp_metrics = (
+            engine.time_series["population"][-1],
+            engine.time_series["avg_hunger"][-1],
+            engine.time_series["food_stock"][-1],
+            engine.time_series["water_stock"][-1],
+        )
+        self.assertEqual(baseline_metrics, camp_metrics)
+
+    def test_camp_kind_is_safe_in_render_path(self):
+        from view.panels import Panels
+        config = SimulationConfig(
+            days=5, seed=10, num_households=1, members_per_household=1,
+            grid_width=12, grid_height=10,
+        )
+        engine = SpatialPrototypeEngine(config=config)
+        camp = make_camp_node("camp-1", x=5, y=5)
+        engine.nodes.append(camp)
+        snapshot = engine.snapshot()
+        panels = Panels(x=0, width=200, height=400)
+        lines = panels._selected_lines(snapshot, ("node", "camp-1"))
+        text = " ".join(lines)
+        self.assertIn("camp-1", text)
+        self.assertIn("camp", text)
+        self.assertIn("place", text)
 
 
 if __name__ == "__main__":
