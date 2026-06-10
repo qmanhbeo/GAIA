@@ -17,9 +17,15 @@ class PhysiologyConfig:
     thirst_damage_rate: float = 0.022
     home_health_regen_per_tick: float = 0.012
 
-    # Inert scaffolding — not yet read by any decision or damage code.
+    # Fatigue increase — inert for decisions, incremented each tick.
     fatigue_increase_per_tick: float = 0.025
+
+    # Rest-safety threshold — inert placeholder for future rest-seeking.
     rest_safety_threshold: float = 0.3
+
+    # Fatigue recovery during rest at a safe location.
+    fatigue_recovery_per_tick: float = 0.08
+    group_rest_safety_bonus_per_nearby_agent: float = 0.1
 
 
 @dataclass(frozen=True)

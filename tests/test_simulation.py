@@ -1422,5 +1422,110 @@ class RestSafetyScaffoldTests(unittest.TestCase):
             "dead agent should be excluded from nearby_agents")
 
 
+class FatigueRecoveryTests(unittest.TestCase):
+    def setUp(self):
+        self.config = SimulationConfig(
+            days=5, seed=10, num_households=1, members_per_household=2,
+            grid_width=12, grid_height=10,
+        )
+        self.engine = SpatialPrototypeEngine(config=self.config)
+        self.agent = self.engine.agents[0]
+        self.other = self.engine.agents[1]
+        self.home = self.engine._home_for_agent(self.agent)
+
+    def _place_at_home(self, agent):
+        agent.x = self.home.x
+        agent.y = self.home.y
+        agent.carried_food = 0.0
+        agent.hunger = 0.0
+        agent.thirst = 0.0
+
+    def test_resting_at_home_reduces_fatigue(self):
+        self._place_at_home(self.agent)
+        self.home.stock = self.home.capacity
+        self.agent.fatigue = 0.5
+        phys = self.config.physiology
+        self.engine.step()
+        expected = max(0.0, 0.5 + phys.fatigue_increase_per_tick - phys.fatigue_recovery_per_tick)
+        self.assertAlmostEqual(self.agent.fatigue, expected, places=4,
+            msg="fatigue should decrease when resting at home")
+
+    def test_fatigue_recovery_clamped_at_zero(self):
+        self._place_at_home(self.agent)
+        self.home.stock = self.home.capacity
+        self.agent.fatigue = 0.01
+        phys = self.config.physiology
+        self.engine.step()
+        expected = max(0.0, 0.01 + phys.fatigue_increase_per_tick - phys.fatigue_recovery_per_tick)
+        self.assertAlmostEqual(self.agent.fatigue, expected, places=4,
+            msg="fatigue recovery should clamp at 0.0")
+
+    def test_self_not_counted_as_group_bonus(self):
+        self._place_at_home(self.agent)
+        self.home.stock = self.home.capacity
+        self.agent.fatigue = 0.5
+        phys = self.config.physiology
+        self.engine.step()
+        expected = max(0.0, 0.5 + phys.fatigue_increase_per_tick - phys.fatigue_recovery_per_tick)
+        self.assertAlmostEqual(self.agent.fatigue, expected, places=4,
+            msg="single agent should recover at base rate (no group bonus)")
+
+    def test_effective_rest_quality_alone(self):
+        self._place_at_home(self.agent)
+        quality = self.engine._effective_rest_quality(self.agent, self.home)
+        self.assertEqual(quality, 1.0,
+            "home rest_safety=1.0 alone should give quality 1.0")
+
+    def test_effective_rest_quality_with_nearby_other(self):
+        home2 = self.engine._home_for_agent(self.other)
+        home2.rest_safety = 0.5
+        self._place_at_home(self.other)
+        self.other.x = self.home.x
+        self.other.y = self.home.y
+        self._place_at_home(self.agent)
+        quality = self.engine._effective_rest_quality(self.agent, home2)
+        expected = min(1.0, 0.5 + 0.1)
+        self.assertAlmostEqual(quality, expected, places=4,
+            msg="nearby other should increase rest quality by group bonus")
+
+    def test_effective_rest_quality_clamps_at_one(self):
+        self._place_at_home(self.agent)
+        self.other.x = self.home.x
+        self.other.y = self.home.y
+        self.home.rest_safety = 0.95
+        quality = self.engine._effective_rest_quality(self.agent, self.home)
+        self.assertEqual(quality, 1.0,
+            "effective rest quality should clamp at 1.0")
+
+    def test_hunger_eat_at_home_still_precedes_rest(self):
+        self._place_at_home(self.agent)
+        self.home.stock = 1.0
+        self.agent.hunger = 0.6
+        self.agent.fatigue = 0.5
+        self.engine.step()
+        self.assertEqual(self.agent.last_action, "eat_at_home",
+            "hungry agent with home food should eat, not rest")
+
+    def test_decision_rule_unchanged(self):
+        import inspect
+        from rules.decision import DecisionRule
+        source = inspect.getsource(DecisionRule)
+        self.assertIn("def choose_plan", source)
+        self.assertNotIn("fatigue", source,
+            "DecisionRule should not reference fatigue yet")
+
+    def test_camps_remain_inert(self):
+        from spatial_simulation import make_camp_node
+        camp = make_camp_node("camp-inert-test", x=3, y=7)
+        self.engine.nodes.append(camp)
+        agent = self.engine.agents[0]
+        rule = self.engine.decision_rule
+        for need_name in ("hunger", "thirst"):
+            candidates = rule._candidates_for_need(self.engine, agent, need_name)
+            camp_candidates = [(n, t) for n, t in candidates if n.kind == "camp"]
+            self.assertEqual(len(camp_candidates), 0,
+                "camps should not appear in candidates for {}".format(need_name))
+
+
 if __name__ == "__main__":
     unittest.main()

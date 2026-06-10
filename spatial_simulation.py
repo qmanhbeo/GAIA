@@ -159,7 +159,7 @@ class SpatialAgent:
     hunger: float
     thirst: float
     health: float
-    fatigue: float = 0.0
+    fatigue: float = 0.0  # aggregate bodily/rest debt; not yet split into physical/mental/vigilance fatigue
     carried_food: float = 0.0
     carry_capacity: float = AGENT_CARRY_CAPACITY
     state: str = "idle"
@@ -522,6 +522,15 @@ class SpatialPrototypeEngine:
                 result.append(other)
         return result
 
+    def _effective_rest_quality(self, agent: SpatialAgent, node: SpatialNode) -> float:
+        """Rest quality at node, considering node safety and nearby others."""
+        phys = self.config.physiology
+        nearby_others = max(0, len(self._nearby_agents(agent)) - 1)
+        return min(
+            1.0,
+            node.rest_safety + phys.group_rest_safety_bonus_per_nearby_agent * nearby_others,
+        )
+
     def _tile(self, position: tuple[int, int]) -> SpatialTile:
         return self.tiles[position]
 
@@ -682,6 +691,7 @@ class SpatialPrototypeEngine:
             self._handle_home_arrival(agent, node)
 
     def _handle_home_arrival(self, agent: SpatialAgent, home: SpatialNode) -> None:
+        phys = self.config.physiology
         agent.path_length = 0
         if agent.carried_food > 0 and home.stock < home.capacity:
             amount = min(agent.carried_food, home.capacity - home.stock)
@@ -702,7 +712,9 @@ class SpatialPrototypeEngine:
             agent.current_task = None
             agent.task_target_id = None
             return
-        agent.health = min(1.0, agent.health + self.config.physiology.home_health_regen_per_tick)
+        agent.health = min(1.0, agent.health + phys.home_health_regen_per_tick)
+        recovery = phys.fatigue_recovery_per_tick * self._effective_rest_quality(agent, home)
+        agent.fatigue = max(0.0, agent.fatigue - recovery)
         agent.state = "resting"
         agent.last_action = "rest"
 
