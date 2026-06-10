@@ -85,6 +85,7 @@ class SpatialNode:
     replenish_per_tick: float
     color: str
     shelter_quality: float = 0.0
+    rest_safety: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
         stock = round(self.stock, 3)
@@ -119,6 +120,7 @@ class SpatialNode:
             }
         if self.kind == "camp":
             payload["shelter_quality"] = round(self.shelter_quality, 3)
+        payload["rest_safety"] = round(self.rest_safety, 3)
         return payload
 
 
@@ -140,6 +142,7 @@ def make_camp_node(
         replenish_per_tick=0.0,
         color=CAMP_COLOR,
         shelter_quality=shelter_quality,
+    rest_safety=shelter_quality,
     )
 
 
@@ -156,6 +159,7 @@ class SpatialAgent:
     hunger: float
     thirst: float
     health: float
+    fatigue: float = 0.0
     carried_food: float = 0.0
     carry_capacity: float = AGENT_CARRY_CAPACITY
     state: str = "idle"
@@ -186,6 +190,7 @@ class SpatialAgent:
             "home_y": self.home_y,
             "hunger": round(self.hunger, 3),
             "thirst": round(self.thirst, 3),
+            "fatigue": round(self.fatigue, 3),
             "health": round(self.health, 3),
             "carried_food": round(self.carried_food, 3),
             "carry_capacity": round(self.carry_capacity, 3),
@@ -214,6 +219,7 @@ class SpatialAgent:
                 "needs": {
                     "hunger": round(self.hunger, 3),
                     "thirst": round(self.thirst, 3),
+                    "fatigue": round(self.fatigue, 3),
                 },
                 "health": {"value": round(self.health, 3)},
                 "inventory": {
@@ -302,6 +308,7 @@ class SpatialPrototypeEngine:
                     capacity=HOME_FOOD_CAPACITY,
                     replenish_per_tick=0.0,
                     color="#ffdd9a",
+                    rest_safety=1.0,
                 )
             )
 
@@ -504,6 +511,17 @@ class SpatialPrototypeEngine:
             "last_seen_tick": tick,
         }
 
+    def _nearby_agents(self, agent: SpatialAgent, radius: int = 1) -> list[SpatialAgent]:
+        """Return alive agents within Manhattan distance <= radius, including self."""
+        result: list[SpatialAgent] = []
+        ax, ay = agent.x, agent.y
+        for other in self.agents:
+            if not other.is_alive():
+                continue
+            if abs(other.x - ax) + abs(other.y - ay) <= radius:
+                result.append(other)
+        return result
+
     def _tile(self, position: tuple[int, int]) -> SpatialTile:
         return self.tiles[position]
 
@@ -704,6 +722,7 @@ class SpatialPrototypeEngine:
         phys = self.config.physiology
         agent.hunger = min(1.0, agent.hunger + phys.hunger_increase_per_tick)
         agent.thirst = min(1.0, agent.thirst + phys.thirst_increase_per_tick)
+        agent.fatigue = min(1.0, agent.fatigue + phys.fatigue_increase_per_tick)
         if agent.hunger > phys.hunger_damage_threshold:
             agent.health = max(0.0, agent.health - phys.hunger_damage_rate)
         if agent.thirst > phys.thirst_damage_threshold:

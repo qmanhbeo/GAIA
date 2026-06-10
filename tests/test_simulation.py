@@ -1326,5 +1326,101 @@ class MemoryTieBreakTests(unittest.TestCase):
                 "camps should not appear in candidates for {}".format(need_name))
 
 
+class RestSafetyScaffoldTests(unittest.TestCase):
+    def setUp(self):
+        self.config = SimulationConfig(
+            days=5, seed=10, num_households=1, members_per_household=2,
+            grid_width=12, grid_height=10,
+        )
+        self.engine = SpatialPrototypeEngine(config=self.config)
+        self.agent = self.engine.agents[0]
+        self.home = self.engine._home_for_agent(self.agent)
+
+    def test_agent_starts_with_zero_fatigue(self):
+        self.assertEqual(self.agent.fatigue, 0.0)
+
+    def test_fatigue_increases_after_one_tick(self):
+        phys = self.config.physiology
+        self.engine.step()
+        self.assertAlmostEqual(self.agent.fatigue, phys.fatigue_increase_per_tick, places=4)
+
+    def test_fatigue_is_clamped_to_one(self):
+        self.agent.fatigue = 0.99
+        phys = self.engine.config.physiology
+        self.engine.step()
+        self.assertLessEqual(self.agent.fatigue, 1.0)
+
+    def test_fatigue_serialized_in_agent_as_dict(self):
+        serialized = self.agent.as_dict()
+        self.assertIn("fatigue", serialized)
+        self.assertIsInstance(serialized["fatigue"], float)
+
+    def test_fatigue_in_components_needs(self):
+        serialized = self.agent.as_dict()
+        self.assertIn("fatigue", serialized["components"]["needs"])
+
+    def test_home_has_rest_safety_one(self):
+        self.assertEqual(self.home.rest_safety, 1.0)
+
+    def test_default_camp_rest_safety_is_zero(self):
+        from spatial_simulation import make_camp_node
+        camp = make_camp_node("camp-default", x=3, y=7)
+        self.assertEqual(camp.rest_safety, 0.0)
+
+    def test_custom_camp_rest_safety_matches_shelter_quality(self):
+        from spatial_simulation import make_camp_node
+        camp = make_camp_node("camp-custom", x=4, y=6, shelter_quality=0.4)
+        self.assertEqual(camp.rest_safety, 0.4)
+        self.assertEqual(camp.rest_safety, camp.shelter_quality)
+
+    def test_rest_safety_serialized_in_node_as_dict(self):
+        serialized = self.home.as_dict()
+        self.assertIn("rest_safety", serialized)
+        self.assertAlmostEqual(serialized["rest_safety"], 1.0)
+
+    def test_nearby_agents_returns_self_when_alone(self):
+        self.agent.x = 0
+        self.agent.y = 0
+        nearby = self.engine._nearby_agents(self.agent, radius=1)
+        self.assertIn(self.agent, nearby)
+        self.assertEqual(len(nearby), 1)
+
+    def test_nearby_agents_includes_other_on_same_tile(self):
+        other = self.engine.agents[1]
+        other.x = self.agent.x
+        other.y = self.agent.y
+        nearby = self.engine._nearby_agents(self.agent, radius=1)
+        self.assertIn(self.agent, nearby)
+        self.assertIn(other, nearby)
+        self.assertEqual(len(nearby), 2)
+
+    def test_nearby_agents_includes_adjacent_within_radius(self):
+        other = self.engine.agents[1]
+        other.x = self.agent.x + 1
+        other.y = self.agent.y
+        nearby = self.engine._nearby_agents(self.agent, radius=1)
+        self.assertIn(other, nearby,
+            "adjacent agent should be within radius 1")
+
+    def test_nearby_agents_excludes_outside_radius(self):
+        other = self.engine.agents[1]
+        other.x = self.agent.x + 5
+        other.y = self.agent.y
+        nearby = self.engine._nearby_agents(self.agent, radius=1)
+        self.assertNotIn(other, nearby,
+            "agent at distance 5 should be excluded")
+
+    def test_nearby_agents_excludes_dead_agents(self):
+        other = self.engine.agents[1]
+        other.x = self.agent.x
+        other.y = self.agent.y
+        other.health = 0.0
+        self.assertFalse(other.is_alive())
+        nearby = self.engine._nearby_agents(self.agent, radius=1)
+        self.assertIn(self.agent, nearby)
+        self.assertNotIn(other, nearby,
+            "dead agent should be excluded from nearby_agents")
+
+
 if __name__ == "__main__":
     unittest.main()

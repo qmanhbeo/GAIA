@@ -17,6 +17,10 @@ class PhysiologyConfig:
     thirst_damage_rate: float = 0.022
     home_health_regen_per_tick: float = 0.012
 
+    # Inert scaffolding — not yet read by any decision or damage code.
+    fatigue_increase_per_tick: float = 0.025
+    rest_safety_threshold: float = 0.3
+
 
 @dataclass(frozen=True)
 class SpatialLayoutConfig:
