@@ -37,6 +37,8 @@ class DecisionRule:
     hunger_critical: float = 0.88
     thirst_critical: float = 0.91
 
+    MEMORY_TIE_EPSILON = 1e-9
+
     def __post_init__(self) -> None:
         self.NEEDS: list[NeedSpec] = [
             NeedSpec(
@@ -167,6 +169,10 @@ class DecisionRule:
             return node.stock < sat.min_stock
         return node.stock <= 0
 
+    @staticmethod
+    def _candidate_memory_score(agent: Any, node: Any) -> int:
+        return 1 if node.id in agent.node_memory else 0
+
     # ------------------------------------------------------------------
     # Viability / selection
     # ------------------------------------------------------------------
@@ -212,9 +218,15 @@ class DecisionRule:
             if eta is None:
                 continue
             slack = death_t - eta
-            if slack > best_slack:
+            if slack > best_slack + self.MEMORY_TIE_EPSILON:
                 best_slack = slack
                 best_node, best_task = node, task
+            elif abs(slack - best_slack) <= self.MEMORY_TIE_EPSILON:
+                current_mem = self._candidate_memory_score(agent, best_node) if best_node is not None else 0
+                candidate_mem = self._candidate_memory_score(agent, node)
+                if candidate_mem > current_mem:
+                    best_slack = slack
+                    best_node, best_task = node, task
 
         # Fallback: first reachable candidate with stock
         if best_node is None:

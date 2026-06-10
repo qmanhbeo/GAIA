@@ -1141,13 +1141,6 @@ class NodeMemoryTests(unittest.TestCase):
         self.assertIn("last_seen_tick", entry)
         self.assertIsInstance(entry["last_seen_tick"], int)
 
-    def test_decision_rule_does_not_read_node_memory(self):
-        import inspect
-        from rules.decision import DecisionRule
-        source = inspect.getsource(DecisionRule)
-        self.assertNotIn("node_memory", source)
-
-
 class NeedSpecTests(unittest.TestCase):
     def setUp(self):
         self.config = SimulationConfig(
@@ -1247,11 +1240,90 @@ class NeedSpecTests(unittest.TestCase):
         self.home.stock = 0.0
         self.assertFalse(self.rule._candidate_is_depleted(self.home, "seek_rest"))
 
-    def test_decision_rule_does_not_read_node_memory(self):
+class MemoryTieBreakTests(unittest.TestCase):
+    def setUp(self):
+        self.config = SimulationConfig(
+            days=5, seed=10, num_households=1, members_per_household=1,
+            grid_width=12, grid_height=10,
+        )
+        self.engine = SpatialPrototypeEngine(config=self.config)
+        self.agent = self.engine.agents[0]
+        self.home = self.engine._home_for_agent(self.agent)
+        self.food = self.engine._node_by_kind("food")
+        self.water = self.engine._node_by_kind("water")
+        self.rule = self.engine.decision_rule
+        from spatial_simulation import SpatialNode
+        self.second_food = SpatialNode(
+            id="food-2", kind="food", label="Second Field",
+            x=6, y=8,
+            stock=5.0, capacity=7.0, replenish_per_tick=0.18,
+            color="#9df584",
+        )
+        self.engine.nodes.append(self.second_food)
+
+    def test_memory_tie_breaker_prefers_remembered(self):
+        candidates = [(self.food, "seek_food"), (self.second_food, "seek_food")]
+        self.agent.node_memory[self.second_food.id] = {}
+        from unittest.mock import patch
+        with patch.object(self.rule, '_compute_eta', return_value=5):
+            best_node, best_task = self.rule._best_viable_target(self.engine, self.agent, candidates)
+        self.assertEqual(best_node.id, self.second_food.id,
+            "remembered node should win when slack ties")
+
+    def test_better_slack_beats_memory(self):
+        candidates = [(self.food, "seek_food"), (self.second_food, "seek_food")]
+        self.agent.node_memory[self.food.id] = {}
+        from unittest.mock import patch
+        with patch.object(self.rule, '_compute_eta',
+                          side_effect=lambda e, a, n: {self.food.id: 10, self.second_food.id: 2}.get(n.id, 100)):
+            best_node, best_task = self.rule._best_viable_target(self.engine, self.agent, candidates)
+        self.assertEqual(best_node.id, self.second_food.id,
+            "unknown node with better slack should beat remembered node")
+
+    def test_remembered_depleted_rejected(self):
+        self.food.stock = 0.0
+        self.agent.node_memory[self.food.id] = {}
+        candidates = [(self.food, "seek_food"), (self.second_food, "seek_food")]
+        from unittest.mock import patch
+        with patch.object(self.rule, '_compute_eta', return_value=5):
+            best_node, best_task = self.rule._best_viable_target(self.engine, self.agent, candidates)
+        self.assertEqual(best_node.id, self.second_food.id,
+            "depleted remembered node should be rejected; stocked unknown should win")
+
+    def test_no_memory_behavior_unchanged(self):
+        candidates = [(self.food, "seek_food"), (self.second_food, "seek_food")]
+        from unittest.mock import patch
+        with patch.object(self.rule, '_compute_eta',
+                          side_effect=lambda e, a, n: {self.food.id: 5, self.second_food.id: 3}.get(n.id, 100)):
+            best_node, best_task = self.rule._best_viable_target(self.engine, self.agent, candidates)
+        self.assertEqual(best_node.id, self.second_food.id,
+            "better slack should win when neither candidate is remembered")
+
+    def test_node_memory_only_in_helper(self):
         import inspect
         from rules.decision import DecisionRule
         source = inspect.getsource(DecisionRule)
-        self.assertNotIn("node_memory", source)
+        count = source.count("node_memory")
+        self.assertEqual(count, 1,
+            "node_memory must appear exactly once in DecisionRule source "
+            "(in _candidate_memory_score); found {}".format(count))
+
+    def test_camps_not_in_candidates_for_need(self):
+        config = SimulationConfig(
+            days=5, seed=10, num_households=1, members_per_household=1,
+            grid_width=12, grid_height=10,
+        )
+        engine = SpatialPrototypeEngine(config=config)
+        from spatial_simulation import make_camp_node
+        camp = make_camp_node("camp-test", x=3, y=7)
+        engine.nodes.append(camp)
+        agent = engine.agents[0]
+        rule = engine.decision_rule
+        for need_name in ("hunger", "thirst"):
+            candidates = rule._candidates_for_need(engine, agent, need_name)
+            camp_candidates = [(n, t) for n, t in candidates if n.kind == "camp"]
+            self.assertEqual(len(camp_candidates), 0,
+                "camps should not appear in candidates for {}".format(need_name))
 
 
 if __name__ == "__main__":
