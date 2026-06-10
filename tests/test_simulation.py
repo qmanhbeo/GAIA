@@ -6,7 +6,8 @@ import sys
 import unittest
 
 from analysis.audit_survival_budget import audit_config, compute_agent_budget, project_death_tick
-from gaia_config import DEFAULT_LAYOUT, DEFAULT_VIEWER_SPEED, SPATIAL_MODE, SimulationConfig
+from analysis.calibrate_survival_budget import run_sweep
+from gaia_config import DEFAULT_LAYOUT, DEFAULT_VIEWER_SPEED, SPATIAL_MODE, PhysiologyConfig, SimulationConfig
 from main import run_simulation_artifact
 from spatial_live_service import SpatialLiveSession
 from spatial_simulation import (
@@ -774,6 +775,61 @@ class SurvivalBudgetTests(unittest.TestCase):
         self.assertIn("final_population", results)
         self.assertIn("initial_budgets", results)
         self.assertEqual(len(results["initial_budgets"]), 1)
+
+
+class PhysiologyConfigTests(unittest.TestCase):
+    def test_physiology_defaults_match_hardcoded(self):
+        phys = PhysiologyConfig()
+        self.assertEqual(phys.hunger_increase_per_tick, 0.032)
+        self.assertEqual(phys.thirst_increase_per_tick, 0.041)
+        self.assertEqual(phys.hunger_damage_threshold, 0.88)
+        self.assertEqual(phys.thirst_damage_threshold, 0.91)
+        self.assertEqual(phys.hunger_damage_rate, 0.016)
+        self.assertEqual(phys.thirst_damage_rate, 0.022)
+        self.assertEqual(phys.home_health_regen_per_tick, 0.012)
+
+    def test_physiology_from_dict_fails_on_bad_field(self):
+        with self.assertRaises(TypeError):
+            PhysiologyConfig(hunger_increase_per_tick=0.02, nonexistent_field=0.5)
+
+    def test_default_simulation_behavior_unchanged(self):
+        config = SimulationConfig(
+            days=5, seed=42, num_households=1, members_per_household=2,
+            grid_width=12, grid_height=10,
+        )
+        engine = SpatialPrototypeEngine(config=config)
+        for _ in range(5):
+            engine.step()
+        pop = engine.time_series["population"]
+        self.assertGreater(pop[-1], 0)
+        self.assertGreater(engine.time_series["avg_hunger"][-1], 0.3)
+
+    def test_decision_rule_thresholds_from_physiology(self):
+        config = SimulationConfig()
+        engine = SpatialPrototypeEngine(config=config)
+        phys = config.physiology
+        self.assertEqual(engine.decision_rule.hunger_critical, phys.hunger_damage_threshold)
+        self.assertEqual(engine.decision_rule.thirst_critical, phys.thirst_damage_threshold)
+
+    def test_audit_uses_config_physiology(self):
+        config = SimulationConfig(
+            days=2, seed=1, num_households=1, members_per_household=1,
+            grid_width=12, grid_height=10,
+        )
+        results = audit_config(config)
+        self.assertIn("physiology", results)
+        phys = results["physiology"]
+        self.assertEqual(phys["hunger_increase_per_tick"], 0.032)
+        self.assertEqual(phys["thirst_increase_per_tick"], 0.041)
+
+    def test_calibrate_imports_and_runs_tiny_sweep(self):
+        results = run_sweep(
+            days=2, num_households=1, members_per_household=1,
+            grid_width=12, grid_height=10,
+        )
+        self.assertGreater(len(results), 0)
+        self.assertIn("score", results[0])
+        self.assertIn("final_population", results[0])
 
 
 if __name__ == "__main__":

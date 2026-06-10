@@ -8,6 +8,17 @@ SPATIAL_MODE = "spatial_v1_prototype"
 
 
 @dataclass(frozen=True)
+class PhysiologyConfig:
+    hunger_increase_per_tick: float = 0.032
+    thirst_increase_per_tick: float = 0.041
+    hunger_damage_threshold: float = 0.88
+    thirst_damage_threshold: float = 0.91
+    hunger_damage_rate: float = 0.016
+    thirst_damage_rate: float = 0.022
+    home_health_regen_per_tick: float = 0.012
+
+
+@dataclass(frozen=True)
 class SpatialLayoutConfig:
     """Sandbox starting layout; rules stay in the engine, not in this config."""
 
@@ -75,6 +86,7 @@ class SimulationConfig:
     grid_height: int = 16
     tick_duration: str = "1 hour"
     layout: SpatialLayoutConfig = field(default_factory=lambda: DEFAULT_LAYOUT)
+    physiology: PhysiologyConfig = field(default_factory=PhysiologyConfig)
     extra: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -104,6 +116,8 @@ class SimulationConfig:
         values = {key: value for key, value in payload.items() if key in allowed}
         if isinstance(values.get("layout"), dict):
             values["layout"] = SpatialLayoutConfig.from_dict(values["layout"])
+        if isinstance(values.get("physiology"), dict):
+            values["physiology"] = PhysiologyConfig(**values["physiology"])
         ignored = {key: value for key, value in payload.items() if key not in allowed}
         if ignored:
             extra = dict(values.get("extra") or {})

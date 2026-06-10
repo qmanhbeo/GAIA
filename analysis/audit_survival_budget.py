@@ -14,26 +14,14 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
-# Ensure workspace root is importable (handles both `python analysis/...py` and `python -m analysis.audit...`)
+# Ensure workspace root is importable
 _THIS_DIR = Path(__file__).resolve().parent
 _ROOT = _THIS_DIR.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from gaia_config import SimulationConfig  # noqa: E402
+from gaia_config import PhysiologyConfig, SimulationConfig  # noqa: E402
 from spatial_simulation import SpatialPrototypeEngine  # noqa: E402
-
-
-# ---------------------------------------------------------------------------
-# Physiological constants (mirrored from spatial_simulation._update_agent)
-#   hunger_per_tick         = 0.032   (line 650)
-#   thirst_per_tick         = 0.041   (line 651)
-#   hunger_critical         = 0.88    (line 652)
-#   thirst_critical         = 0.91    (line 654)
-#   hunger_damage_per_tick  = 0.016   (line 653)
-#   thirst_damage_per_tick  = 0.022   (line 655)
-#   home_health_regen       = 0.012   (line 633)
-# ---------------------------------------------------------------------------
 
 
 def _ticks_until_critical(current: float, rate: float, threshold: float) -> int:
@@ -42,16 +30,21 @@ def _ticks_until_critical(current: float, rate: float, threshold: float) -> int:
     return int((threshold - current) / rate) + 1
 
 
-def project_death_tick(hunger: float, thirst: float, health: float) -> int:
+def project_death_tick(
+    hunger: float, thirst: float, health: float,
+    phys: PhysiologyConfig | None = None,
+) -> int:
+    if phys is None:
+        phys = PhysiologyConfig()
     ticks = 0
     h, t, hp = hunger, thirst, health
     while hp > 0 and ticks < 100_000:
-        h = min(1.0, h + 0.032)
-        t = min(1.0, t + 0.041)
-        if h > 0.88:
-            hp = max(0.0, hp - 0.016)
-        if t > 0.91:
-            hp = max(0.0, hp - 0.022)
+        h = min(1.0, h + phys.hunger_increase_per_tick)
+        t = min(1.0, t + phys.thirst_increase_per_tick)
+        if h > phys.hunger_damage_threshold:
+            hp = max(0.0, hp - phys.hunger_damage_rate)
+        if t > phys.thirst_damage_threshold:
+            hp = max(0.0, hp - phys.thirst_damage_rate)
         if hp <= 0:
             break
         ticks += 1
@@ -71,15 +64,12 @@ def _survivable(dist: int | None, budget: int | None) -> bool:
     return dist is not None and budget is not None and dist <= budget
 
 
-# ---------------------------------------------------------------------------
-# Per-agent budget computation
-# ---------------------------------------------------------------------------
-
 def compute_agent_budget(engine: SpatialPrototypeEngine, agent: Any) -> dict[str, Any]:
     pos = (agent.x, agent.y)
     home = engine._home_for_agent(agent)
     food = engine._node_by_kind("food")
     water = engine._node_by_kind("water")
+    phys = engine.config.physiology
 
     task_target = None
     if agent.current_task is not None and agent.task_target_id is not None:
@@ -92,9 +82,9 @@ def compute_agent_budget(engine: SpatialPrototypeEngine, agent: Any) -> dict[str
     d_water = _path_ticks(engine, pos, water)
     d_target = _path_ticks(engine, pos, task_target) if task_target else None
 
-    h_crit = _ticks_until_critical(agent.hunger, 0.032, 0.88)
-    t_crit = _ticks_until_critical(agent.thirst, 0.041, 0.91)
-    death_t = project_death_tick(agent.hunger, agent.thirst, agent.health)
+    h_crit = _ticks_until_critical(agent.hunger, phys.hunger_increase_per_tick, phys.hunger_damage_threshold)
+    t_crit = _ticks_until_critical(agent.thirst, phys.thirst_increase_per_tick, phys.thirst_damage_threshold)
+    death_t = project_death_tick(agent.hunger, agent.thirst, agent.health, phys)
 
     can_hunger = _survivable(d_target, h_crit) if d_target is not None else None
     can_thirst = _survivable(d_target, t_crit) if d_target is not None else None
@@ -153,10 +143,6 @@ def compute_agent_budget(engine: SpatialPrototypeEngine, agent: Any) -> dict[str
         "reason": reason,
     }
 
-
-# ---------------------------------------------------------------------------
-# Full config audit
-# ---------------------------------------------------------------------------
 
 def audit_config(config: SimulationConfig) -> dict[str, Any]:
     engine = SpatialPrototypeEngine(config=config)
@@ -218,6 +204,7 @@ def audit_config(config: SimulationConfig) -> dict[str, Any]:
     elif final_pop == 0:
         bottleneck = "health damage accumulation / resource depletion"
 
+    phys = config.physiology
     return {
         "config": {
             "num_households": config.num_households,
@@ -226,6 +213,15 @@ def audit_config(config: SimulationConfig) -> dict[str, Any]:
             "grid_height": config.grid_height,
             "days": config.days,
             "seed": config.seed,
+        },
+        "physiology": {
+            "hunger_increase_per_tick": phys.hunger_increase_per_tick,
+            "thirst_increase_per_tick": phys.thirst_increase_per_tick,
+            "hunger_damage_threshold": phys.hunger_damage_threshold,
+            "thirst_damage_threshold": phys.thirst_damage_threshold,
+            "hunger_damage_rate": phys.hunger_damage_rate,
+            "thirst_damage_rate": phys.thirst_damage_rate,
+            "home_health_regen_per_tick": phys.home_health_regen_per_tick,
         },
         "final_population": f"{final_pop} / {total_pop}",
         "drink_events": drink_events,
@@ -250,11 +246,22 @@ def _median_or_na(values: list[int | None]) -> float | str:
 
 def print_report(results: dict[str, Any]) -> None:
     cfg = results["config"]
+    phys = results["physiology"]
     print("=" * 52)
     print("Survival Budget Audit")
     print("=" * 52)
     print(f"Config: {cfg['num_households']} households x {cfg['members_per_household']} members")
     print(f"  grid {cfg['grid_width']}x{cfg['grid_height']}, {cfg['days']} days, seed={cfg['seed']}")
+    print()
+    print("Physiology config:")
+    print(f"  hunger_increase_per_tick:     {phys['hunger_increase_per_tick']}")
+    print(f"  thirst_increase_per_tick:     {phys['thirst_increase_per_tick']}")
+    print(f"  hunger_damage_threshold:      {phys['hunger_damage_threshold']}")
+    print(f"  thirst_damage_threshold:      {phys['thirst_damage_threshold']}")
+    print(f"  hunger_damage_rate:           {phys['hunger_damage_rate']}")
+    print(f"  thirst_damage_rate:           {phys['thirst_damage_rate']}")
+    print(f"  home_health_regen_per_tick:   {phys['home_health_regen_per_tick']}")
+    print()
     print(f"Final population: {results['final_population']}")
     print(f"Drink events: {results['drink_events']}")
     print(f"Gather events: {results['gather_events']}")

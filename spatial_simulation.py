@@ -216,6 +216,8 @@ class SpatialPrototypeEngine:
             hunger_home_threshold=HUNGER_HOME_THRESHOLD,
             home_meal_size=HOME_MEAL_SIZE,
             thirst_water_threshold=THIRST_WATER_THRESHOLD,
+            hunger_critical=config.physiology.hunger_damage_threshold,
+            thirst_critical=config.physiology.thirst_damage_threshold,
         )
         self.resource_rule = ResourceRule()
         self.events: list[dict[str, Any]] = []
@@ -630,7 +632,7 @@ class SpatialPrototypeEngine:
             agent.current_task = None
             agent.task_target_id = None
             return
-        agent.health = min(1.0, agent.health + 0.012)
+        agent.health = min(1.0, agent.health + self.config.physiology.home_health_regen_per_tick)
         agent.state = "resting"
         agent.last_action = "rest"
 
@@ -647,12 +649,13 @@ class SpatialPrototypeEngine:
             agent.task_started_tick = None
             return
 
-        agent.hunger = min(1.0, agent.hunger + 0.032)
-        agent.thirst = min(1.0, agent.thirst + 0.041)
-        if agent.hunger > 0.88:
-            agent.health = max(0.0, agent.health - 0.016)
-        if agent.thirst > 0.91:
-            agent.health = max(0.0, agent.health - 0.022)
+        phys = self.config.physiology
+        agent.hunger = min(1.0, agent.hunger + phys.hunger_increase_per_tick)
+        agent.thirst = min(1.0, agent.thirst + phys.thirst_increase_per_tick)
+        if agent.hunger > phys.hunger_damage_threshold:
+            agent.health = max(0.0, agent.health - phys.hunger_damage_rate)
+        if agent.thirst > phys.thirst_damage_threshold:
+            agent.health = max(0.0, agent.health - phys.thirst_damage_rate)
         if not agent.is_alive():
             agent.state = "dead"
             agent.target_id = None
