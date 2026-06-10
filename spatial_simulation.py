@@ -15,6 +15,7 @@ HOME_STARTING_FOOD = 2.0
 HOME_FOOD_CAPACITY = 10.0
 CAMP_CAPACITY = 2.0
 CAMP_COLOR = "#cd853f"
+CAMP_SHELTER_QUALITY_DEFAULT = 0.0
 AGENT_CARRY_CAPACITY = 1.0
 HOME_MEAL_SIZE = 0.25
 HOME_MEAL_HUNGER_RELIEF = 0.58
@@ -83,6 +84,7 @@ class SpatialNode:
     capacity: float
     replenish_per_tick: float
     color: str
+    shelter_quality: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
         stock = round(self.stock, 3)
@@ -115,10 +117,18 @@ class SpatialNode:
                 "stored_food": stock,
                 "stored_food_capacity": capacity,
             }
+        if self.kind == "camp":
+            payload["shelter_quality"] = round(self.shelter_quality, 3)
         return payload
 
 
-def make_camp_node(id: str, x: int, y: int, label: str | None = None) -> SpatialNode:
+def make_camp_node(
+    id: str,
+    x: int,
+    y: int,
+    label: str | None = None,
+    shelter_quality: float = CAMP_SHELTER_QUALITY_DEFAULT,
+) -> SpatialNode:
     return SpatialNode(
         id=id,
         kind="camp",
@@ -129,6 +139,7 @@ def make_camp_node(id: str, x: int, y: int, label: str | None = None) -> Spatial
         capacity=CAMP_CAPACITY,
         replenish_per_tick=0.0,
         color=CAMP_COLOR,
+        shelter_quality=shelter_quality,
     )
 
 

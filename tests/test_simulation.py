@@ -16,6 +16,7 @@ from spatial_simulation import (
     THIRST_WATER_THRESHOLD,
     CAMP_CAPACITY,
     CAMP_COLOR,
+    CAMP_SHELTER_QUALITY_DEFAULT,
     SpatialPrototypeEngine,
     make_camp_node,
 )
@@ -975,6 +976,36 @@ class CampNodeTests(unittest.TestCase):
         self.assertEqual(camp_node["capacity"], CAMP_CAPACITY)
         self.assertAlmostEqual(camp_node["stock_ratio"], 0.0)
         self.assertEqual(camp_node["color"], CAMP_COLOR)
+        self.assertEqual(camp_node["shelter_quality"], CAMP_SHELTER_QUALITY_DEFAULT)
+
+    def test_make_camp_node_defaults_shelter_quality_to_zero(self):
+        camp = make_camp_node("default-camp", x=2, y=3)
+        self.assertEqual(camp.shelter_quality, CAMP_SHELTER_QUALITY_DEFAULT)
+        self.assertEqual(camp.shelter_quality, 0.0)
+
+    def test_make_camp_node_accepts_custom_shelter_quality(self):
+        camp = make_camp_node("upgraded-camp", x=4, y=6, shelter_quality=0.4)
+        self.assertEqual(camp.shelter_quality, 0.4)
+        config = SimulationConfig(
+            days=5, seed=10, num_households=1, members_per_household=1,
+            grid_width=12, grid_height=10,
+        )
+        engine = SpatialPrototypeEngine(config=config)
+        engine.nodes.append(camp)
+        snapshot = engine.snapshot()
+        camp_node = next(n for n in snapshot["nodes"] if n["id"] == "upgraded-camp")
+        self.assertEqual(camp_node["shelter_quality"], 0.4)
+
+    def test_non_camp_nodes_do_not_include_shelter_quality(self):
+        config = SimulationConfig(
+            days=5, seed=10, num_households=1, members_per_household=1,
+            grid_width=12, grid_height=10,
+        )
+        engine = SpatialPrototypeEngine(config=config)
+        for node in engine.nodes:
+            d = node.as_dict()
+            self.assertNotIn("shelter_quality", d,
+                f"shelter_quality should not appear in {node.kind} node {node.id}")
 
     def test_camp_node_does_not_change_headless_behavior(self):
         config = SimulationConfig(
