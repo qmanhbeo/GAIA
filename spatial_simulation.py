@@ -160,6 +160,7 @@ class SpatialAgent:
     thirst: float
     health: float
     fatigue: float = 0.0  # aggregate bodily/rest debt; not yet split into physical/mental/vigilance fatigue
+    exposure: float = 0.0  # accumulated environmental burden; not yet decomposed into heat/cold/wet
     carried_food: float = 0.0
     carry_capacity: float = AGENT_CARRY_CAPACITY
     state: str = "idle"
@@ -191,6 +192,7 @@ class SpatialAgent:
             "hunger": round(self.hunger, 3),
             "thirst": round(self.thirst, 3),
             "fatigue": round(self.fatigue, 3),
+            "exposure": round(self.exposure, 3),
             "health": round(self.health, 3),
             "carried_food": round(self.carried_food, 3),
             "carry_capacity": round(self.carry_capacity, 3),
@@ -253,6 +255,8 @@ class SpatialPrototypeEngine:
             "avg_thirst": [],
             "avg_fatigue": [],
             "max_fatigue": [],
+            "avg_exposure": [],
+            "max_exposure": [],
             "resting_count": [],
             "seeking_rest_count": [],
             "fatigued_count": [],
@@ -550,6 +554,14 @@ class SpatialPrototypeEngine:
         gain += phys.carrying_fatigue_per_step_at_full_load * load_ratio
         agent.fatigue = min(1.0, agent.fatigue + gain)
 
+    def _apply_exposure(self, agent: SpatialAgent) -> None:
+        phys = self.config.physiology
+        home = self._home_for_agent(agent)
+        if (agent.x, agent.y) == (home.x, home.y):
+            agent.exposure = max(0.0, agent.exposure - phys.exposure_recovery_per_tick_at_home)
+        else:
+            agent.exposure = min(1.0, agent.exposure + phys.exposure_increase_per_tick_away_from_home)
+
     def _tile(self, position: tuple[int, int]) -> SpatialTile:
         return self.tiles[position]
 
@@ -757,6 +769,7 @@ class SpatialPrototypeEngine:
         agent.hunger = min(1.0, agent.hunger + phys.hunger_increase_per_tick)
         agent.thirst = min(1.0, agent.thirst + phys.thirst_increase_per_tick)
         self._apply_base_fatigue(agent)
+        self._apply_exposure(agent)
         if agent.hunger > phys.hunger_damage_threshold:
             agent.health = max(0.0, agent.health - phys.hunger_damage_rate)
         if agent.thirst > phys.thirst_damage_threshold:
@@ -808,6 +821,8 @@ class SpatialPrototypeEngine:
         self.time_series["avg_thirst"].append(round(sum(agent.thirst for agent in alive_agents) / count, 4) if count else 0.0)
         self.time_series["avg_fatigue"].append(round(sum(agent.fatigue for agent in alive_agents) / count, 4) if count else 0.0)
         self.time_series["max_fatigue"].append(round(max(agent.fatigue for agent in alive_agents), 4) if count else 0.0)
+        self.time_series["avg_exposure"].append(round(sum(agent.exposure for agent in alive_agents) / count, 4) if count else 0.0)
+        self.time_series["max_exposure"].append(round(max(agent.exposure for agent in alive_agents), 4) if count else 0.0)
         self.time_series["resting_count"].append(sum(1 for agent in alive_agents if agent.last_action == "rest"))
         self.time_series["seeking_rest_count"].append(sum(1 for agent in alive_agents if agent.current_task == "seek_rest"))
         threshold = self.config.physiology.fatigue_rest_threshold
@@ -876,6 +891,8 @@ class SpatialPrototypeEngine:
             "avg_thirst": round(sum(agent.thirst for agent in alive_agents) / len(alive_agents), 4) if alive_agents else 0.0,
             "avg_fatigue": round(sum(agent.fatigue for agent in alive_agents) / len(alive_agents), 4) if alive_agents else 0.0,
             "max_fatigue": round(max(agent.fatigue for agent in alive_agents), 4) if alive_agents else 0.0,
+            "avg_exposure": round(sum(agent.exposure for agent in alive_agents) / len(alive_agents), 4) if alive_agents else 0.0,
+            "max_exposure": round(max(agent.exposure for agent in alive_agents), 4) if alive_agents else 0.0,
             "resting_count": sum(1 for agent in alive_agents if agent.last_action == "rest"),
             "seeking_rest_count": sum(1 for agent in alive_agents if agent.current_task == "seek_rest"),
             "fatigued_count": sum(1 for agent in alive_agents if agent.fatigue >= self.config.physiology.fatigue_rest_threshold),
@@ -900,6 +917,8 @@ class SpatialPrototypeEngine:
             "avg_thirst": metrics["avg_thirst"],
             "avg_fatigue": metrics["avg_fatigue"],
             "max_fatigue": metrics["max_fatigue"],
+            "avg_exposure": metrics["avg_exposure"],
+            "max_exposure": metrics["max_exposure"],
             "tiles": tiles,
             "grid": {
                 "width": self.config.grid_width,

@@ -34,6 +34,10 @@ class PhysiologyConfig:
     movement_fatigue_per_step: float = 0.01
     carrying_fatigue_per_step_at_full_load: float = 0.02
 
+    # Environmental exposure — inert; no damage or decision impact yet.
+    exposure_increase_per_tick_away_from_home: float = 0.01
+    exposure_recovery_per_tick_at_home: float = 0.02
+
 
 @dataclass(frozen=True)
 class SpatialLayoutConfig:
