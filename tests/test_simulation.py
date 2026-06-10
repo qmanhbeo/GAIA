@@ -1507,14 +1507,6 @@ class FatigueRecoveryTests(unittest.TestCase):
         self.assertEqual(self.agent.last_action, "eat_at_home",
             "hungry agent with home food should eat, not rest")
 
-    def test_decision_rule_unchanged(self):
-        import inspect
-        from rules.decision import DecisionRule
-        source = inspect.getsource(DecisionRule)
-        self.assertIn("def choose_plan", source)
-        self.assertNotIn("fatigue", source,
-            "DecisionRule should not reference fatigue yet")
-
     def test_camps_remain_inert(self):
         from spatial_simulation import make_camp_node
         camp = make_camp_node("camp-inert-test", x=3, y=7)
@@ -1597,13 +1589,100 @@ class ActivityFatigueTests(unittest.TestCase):
         self.engine._apply_movement_fatigue(self.agent)
         self.assertLessEqual(self.agent.fatigue, 1.0)
 
-    def test_decision_rule_unchanged(self):
+
+class FatigueDecisionTests(unittest.TestCase):
+    def setUp(self):
+        self.config = SimulationConfig(
+            days=5, seed=10, num_households=1, members_per_household=2,
+            grid_width=12, grid_height=10,
+        )
+        self.engine = SpatialPrototypeEngine(config=self.config)
+        self.agent = self.engine.agents[0]
+        self.phys = self.config.physiology
+        self.home = self.engine._home_for_agent(self.agent)
+
+    def test_high_fatigue_low_needs_seeks_rest(self):
+        self.agent.fatigue = 0.8
+        self.agent.hunger = 0.0
+        self.agent.thirst = 0.0
+        target, state = self.engine.decision_rule.choose_plan(self.engine, self.agent)
+        self.assertEqual(target.id, self.home.id)
+        self.assertEqual(state, "seeking_rest")
+
+    def test_critical_thirst_overrides_high_fatigue(self):
+        self.agent.fatigue = 0.8
+        self.agent.thirst = 0.95
+        self.agent.hunger = 0.0
+        target, state = self.engine.decision_rule.choose_plan(self.engine, self.agent)
+        self.assertEqual(target.kind, "water")
+        self.assertEqual(state, "seeking_water")
+
+    def test_critical_hunger_overrides_high_fatigue(self):
+        self.agent.fatigue = 0.8
+        self.agent.hunger = 0.9
+        self.agent.thirst = 0.0
+        target, state = self.engine.decision_rule.choose_plan(self.engine, self.agent)
+        self.assertIn(state, ("seeking_food", "seeking_home_food"),
+            "critical hunger should route to food or home food target")
+
+    def test_mild_thirst_overrides_high_fatigue(self):
+        self.agent.fatigue = 0.8
+        self.agent.thirst = 0.87
+        self.agent.hunger = 0.0
+        target, state = self.engine.decision_rule.choose_plan(self.engine, self.agent)
+        self.assertEqual(target.kind, "water")
+        self.assertEqual(state, "seeking_water")
+
+    def test_mild_hunger_overrides_high_fatigue(self):
+        self.agent.fatigue = 0.8
+        self.agent.hunger = 0.6
+        self.agent.thirst = 0.0
+        self.home.stock = 1.0
+        target, state = self.engine.decision_rule.choose_plan(self.engine, self.agent)
+        self.assertEqual(state, "seeking_home_food")
+
+    def test_below_threshold_fatigue_does_not_seek_rest(self):
+        self.agent.fatigue = 0.5
+        self.agent.hunger = 0.0
+        self.agent.thirst = 0.0
+        target, state = self.engine.decision_rule.choose_plan(self.engine, self.agent)
+        self.assertNotEqual(state, "seeking_rest",
+            "agent with fatigue below threshold should not seek rest")
+
+    def test_high_fatigue_never_chooses_camp(self):
+        from spatial_simulation import make_camp_node
+        camp = make_camp_node("camp-fatigue-test", x=3, y=7)
+        self.engine.nodes.append(camp)
+        self.agent.fatigue = 0.8
+        self.agent.hunger = 0.0
+        self.agent.thirst = 0.0
+        target, state = self.engine.decision_rule.choose_plan(self.engine, self.agent)
+        self.assertEqual(target.kind, "home",
+            "high fatigue should target home, not camp")
+
+    def test_seek_rest_task_cleared_after_home_rest(self):
+        self.agent.x = self.home.x
+        self.agent.y = self.home.y
+        self.agent.current_task = "seek_rest"
+        self.agent.task_target_id = self.home.id
+        self.agent.carried_food = 0.0
+        self.agent.hunger = 0.0
+        self.agent.thirst = 0.0
+        self.home.stock = self.home.capacity
+        self.engine._handle_home_arrival(self.agent, self.home)
+        self.assertIsNone(self.agent.current_task,
+            "seek_rest task should be cleared after home rest")
+        self.assertIsNone(self.agent.task_target_id,
+            "task target id should be cleared after home rest")
+
+    def test_decision_rule_references_fatigue_intentionally(self):
         import inspect
         from rules.decision import DecisionRule
         source = inspect.getsource(DecisionRule)
-        self.assertIn("def choose_plan", source)
-        self.assertNotIn("fatigue", source,
-            "DecisionRule should not reference fatigue")
+        self.assertIn("fatigue", source,
+            "DecisionRule should now reference fatigue")
+        self.assertNotIn('"fatigue"', source,
+            "fatigue should not be a NeedSpec string key")
 
 
 if __name__ == "__main__":

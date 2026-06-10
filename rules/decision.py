@@ -121,6 +121,7 @@ class DecisionRule:
             "seek_food": "seeking_food",
             "return_home_with_food": "carrying_food_home",
             "seek_home_food": "seeking_home_food",
+            "seek_rest": "seeking_rest",
         }
         return mapping.get(task, "resting")
 
@@ -249,6 +250,8 @@ class DecisionRule:
             return agent.thirst >= self.thirst_critical
         if task == "return_home_with_food":
             return agent.thirst >= self.thirst_critical
+        if task == "seek_rest":
+            return agent.thirst >= self.thirst_critical or agent.hunger >= self.hunger_critical
         return False
 
     @staticmethod
@@ -313,6 +316,10 @@ class DecisionRule:
             target, task = self._best_viable_target(engine, agent, candidates)
             self._commit(agent, task, target)
             return target, self._task_to_state(task)
+        # E. High fatigue — seek home rest
+        if agent.fatigue >= engine.config.physiology.fatigue_rest_threshold:
+            self._commit(agent, "seek_rest", home)
+            return home, "seeking_rest"
         # Maintenance
         if home.stock < home.capacity and agent.carried_food < agent.carry_capacity:
             target, task = self._best_viable_target(

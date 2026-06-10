@@ -730,6 +730,8 @@ class SpatialPrototypeEngine:
         agent.health = min(1.0, agent.health + phys.home_health_regen_per_tick)
         recovery = phys.fatigue_recovery_per_tick * self._effective_rest_quality(agent, home)
         agent.fatigue = max(0.0, agent.fatigue - recovery)
+        agent.current_task = None
+        agent.task_target_id = None
         agent.state = "resting"
         agent.last_action = "rest"
 
