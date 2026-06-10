@@ -5,6 +5,7 @@ import subprocess
 import sys
 import unittest
 
+from analysis.audit_survival_budget import audit_config, compute_agent_budget, project_death_tick
 from gaia_config import DEFAULT_LAYOUT, DEFAULT_VIEWER_SPEED, SPATIAL_MODE, SimulationConfig
 from main import run_simulation_artifact
 from spatial_live_service import SpatialLiveSession
@@ -578,6 +579,201 @@ class EventLogTests(unittest.TestCase):
             first.step()
             second.step()
         self.assertEqual(first.event_log, second.event_log)
+
+
+class HomeostaticCommitmentTests(unittest.TestCase):
+    def test_seeking_water_ignores_mild_hunger(self):
+        engine = SpatialPrototypeEngine(
+            config=SimulationConfig(
+                days=4, seed=10, num_households=1, members_per_household=1, grid_width=12, grid_height=10,
+            )
+        )
+        agent = engine.agents[0]
+        water = engine._node_by_kind("water")
+        agent.current_task = "seek_water"
+        agent.task_target_id = water.id
+        agent.hunger = 0.6
+        agent.thirst = 0.9
+        target, state = engine.decision_rule.choose_plan(engine, agent)
+        self.assertEqual(target.kind, "water")
+
+    def test_seeking_food_ignores_mild_thirst(self):
+        engine = SpatialPrototypeEngine(
+            config=SimulationConfig(
+                days=4, seed=10, num_households=1, members_per_household=1, grid_width=12, grid_height=10,
+            )
+        )
+        agent = engine.agents[0]
+        food = engine._node_by_kind("food")
+        agent.current_task = "seek_food"
+        agent.task_target_id = food.id
+        agent.hunger = 0.7
+        agent.thirst = 0.85
+        target, state = engine.decision_rule.choose_plan(engine, agent)
+        self.assertEqual(target.kind, "food")
+
+    def test_seeking_food_overrides_when_thirst_critical(self):
+        engine = SpatialPrototypeEngine(
+            config=SimulationConfig(
+                days=4, seed=10, num_households=1, members_per_household=1, grid_width=12, grid_height=10,
+            )
+        )
+        agent = engine.agents[0]
+        food = engine._node_by_kind("food")
+        agent.current_task = "seek_food"
+        agent.task_target_id = food.id
+        agent.hunger = 0.7
+        agent.thirst = 0.95
+        engine.decision_rule.choose_plan(engine, agent)
+        self.assertEqual(agent.current_task, "seek_water")
+
+    def test_gather_food_sets_return_home_task(self):
+        engine = SpatialPrototypeEngine(
+            config=SimulationConfig(
+                days=4, seed=30, num_households=1, members_per_household=1, grid_width=12, grid_height=10,
+            )
+        )
+        agent = engine.agents[0]
+        food = engine._node_by_kind("food")
+        home = engine._home_for_agent(agent)
+        food.replenish_per_tick = 0.0
+        home.stock = 0.0
+        agent.x = food.x
+        agent.y = food.y
+        agent.hunger = 0.1
+        agent.thirst = 0.1
+        engine.step()
+        self.assertGreater(agent.carried_food, 0.0)
+        self.assertEqual(agent.current_task, "return_home_with_food")
+        self.assertEqual(agent.task_target_id, home.id)
+
+    def test_deposit_food_clears_task(self):
+        engine = SpatialPrototypeEngine(
+            config=SimulationConfig(
+                days=4, seed=31, num_households=1, members_per_household=1, grid_width=8, grid_height=6,
+            )
+        )
+        agent = engine.agents[0]
+        home = engine._home_for_agent(agent)
+        agent.x = home.x
+        agent.y = home.y
+        agent.carried_food = 0.5
+        engine.step()
+        self.assertEqual(agent.last_action, "deposit_food")
+        self.assertIsNone(agent.current_task)
+        self.assertIsNone(agent.task_target_id)
+
+    def test_drink_clears_task(self):
+        engine = SpatialPrototypeEngine(
+            config=SimulationConfig(
+                days=4, seed=31, num_households=1, members_per_household=1, grid_width=8, grid_height=6,
+            )
+        )
+        agent = engine.agents[0]
+        water = engine._node_by_kind("water")
+        agent.x = water.x
+        agent.y = water.y
+        agent.hunger = 0.1
+        agent.thirst = 0.9
+        engine.step()
+        self.assertEqual(agent.last_action, "drink")
+        self.assertIsNone(agent.current_task)
+        self.assertIsNone(agent.task_target_id)
+
+
+class HomeostaticAuditTests(unittest.TestCase):
+    def _run_engine(self):
+        config = SimulationConfig(
+            days=200, seed=42, num_households=2, members_per_household=2, grid_width=12, grid_height=10,
+        )
+        engine = SpatialPrototypeEngine(config=config)
+        for _ in range(200):
+            engine.step()
+        return engine
+
+    def test_medium_run_produces_drink_event(self):
+        engine = self._run_engine()
+        self.assertTrue(any(e["event"] == "drink" for e in engine.event_log))
+
+    def test_medium_run_decreases_water_stock(self):
+        engine = self._run_engine()
+        min_stock = min(engine.time_series["water_stock"])
+        self.assertLess(min_stock, 8.0)
+
+    def test_agents_do_not_all_die_with_water_untouched(self):
+        engine = self._run_engine()
+        pop = engine.time_series["population"][-1]
+        water_used = any(e["event"] == "drink" for e in engine.event_log)
+        self.assertTrue(pop > 0 or water_used)
+
+
+class SurvivalBudgetTests(unittest.TestCase):
+    def test_compute_agent_budget_returns_finite_distances(self):
+        config = SimulationConfig(
+            days=2, seed=1, num_households=1, members_per_household=1,
+            grid_width=12, grid_height=10,
+        )
+        engine = SpatialPrototypeEngine(config=config)
+        agent = engine.agents[0]
+        budget = compute_agent_budget(engine, agent)
+        self.assertIsNotNone(budget["distance_to_home"])
+        self.assertIsNotNone(budget["distance_to_food"])
+        self.assertIsNotNone(budget["distance_to_water"])
+        self.assertGreater(budget["distance_to_food"], 0)
+        self.assertGreater(budget["distance_to_water"], 0)
+
+    def test_budget_time_to_critical_decreases_with_higher_needs(self):
+        config = SimulationConfig(
+            days=2, seed=1, num_households=1, members_per_household=1,
+            grid_width=12, grid_height=10,
+        )
+        engine = SpatialPrototypeEngine(config=config)
+        agent = engine.agents[0]
+        agent.hunger = 0.3
+        agent.thirst = 0.3
+        budget_low = compute_agent_budget(engine, agent)
+        agent.hunger = 0.7
+        agent.thirst = 0.7
+        budget_high = compute_agent_budget(engine, agent)
+        self.assertGreater(
+            budget_low["ticks_until_hunger_critical"],
+            budget_high["ticks_until_hunger_critical"],
+        )
+        self.assertGreater(
+            budget_low["ticks_until_thirst_critical"],
+            budget_high["ticks_until_thirst_critical"],
+        )
+
+    def test_nearby_target_marked_more_survivable(self):
+        config = SimulationConfig(
+            days=2, seed=1, num_households=1, members_per_household=2,
+            grid_width=12, grid_height=10,
+        )
+        engine = SpatialPrototypeEngine(config=config)
+        agent_near = engine.agents[0]
+        agent_far = engine.agents[1]
+        water = engine._node_by_kind("water")
+        agent_near.x = water.x
+        agent_near.y = water.y
+        budget_near = compute_agent_budget(engine, agent_near)
+        budget_far = compute_agent_budget(engine, agent_far)
+        self.assertEqual(budget_near["distance_to_water"], 0)
+        self.assertGreater(budget_far["distance_to_water"], budget_near["distance_to_water"])
+
+    def test_project_death_tick_decreases_with_higher_needs(self):
+        low = project_death_tick(0.3, 0.3, 1.0)
+        high = project_death_tick(0.7, 0.7, 1.0)
+        self.assertGreater(low, high)
+
+    def test_audit_imports_and_runs_without_mutation(self):
+        config = SimulationConfig(
+            days=2, seed=5, num_households=1, members_per_household=1,
+            grid_width=12, grid_height=10,
+        )
+        results = audit_config(config)
+        self.assertIn("final_population", results)
+        self.assertIn("initial_budgets", results)
+        self.assertEqual(len(results["initial_budgets"]), 1)
 
 
 if __name__ == "__main__":

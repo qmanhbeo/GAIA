@@ -137,6 +137,9 @@ class SpatialAgent:
     last_action: str = "spawned"
     move_cooldown: int = 0
     path_length: int | None = None
+    current_task: str | None = None
+    task_target_id: str | None = None
+    task_started_tick: int | None = None
 
     def is_alive(self) -> bool:
         return self.health > 0
@@ -164,6 +167,9 @@ class SpatialAgent:
             "last_action": self.last_action,
             "move_cooldown": self.move_cooldown,
             "path_length": self.path_length,
+            "current_task": self.current_task,
+            "task_target_id": self.task_target_id,
+            "task_started_tick": self.task_started_tick,
             "components": {
                 "needs": {
                     "hunger": round(self.hunger, 3),
@@ -566,6 +572,8 @@ class SpatialPrototypeEngine:
                 agent.state = "eating_at_node"
                 agent.last_action = "eat_at_node"
                 self._record_event("eat_at_node", agent=agent, node=node, amount=NODE_MEAL_SIZE)
+                agent.current_task = None
+                agent.task_target_id = None
             elif agent.carried_food < agent.carry_capacity and home.stock < home.capacity and node.stock > 0:
                 amount = min(GATHER_AMOUNT, agent.carry_capacity - agent.carried_food, home.capacity - home.stock, node.stock)
                 node.stock = max(0.0, node.stock - amount)
@@ -573,12 +581,16 @@ class SpatialPrototypeEngine:
                 agent.state = "gathering_food"
                 agent.last_action = "gather_food"
                 self._record_event("gather_food", agent=agent, node=node, amount=amount)
+                agent.current_task = "return_home_with_food"
+                agent.task_target_id = home.id
             elif node.stock >= NODE_MEAL_SIZE and agent.hunger >= HUNGER_HOME_THRESHOLD:
                 node.stock = max(0.0, node.stock - NODE_MEAL_SIZE)
                 agent.hunger = max(0.0, agent.hunger - NODE_MEAL_HUNGER_RELIEF)
                 agent.state = "eating_at_node"
                 agent.last_action = "eat_at_node"
                 self._record_event("eat_at_node", agent=agent, node=node, amount=NODE_MEAL_SIZE)
+                agent.current_task = None
+                agent.task_target_id = None
             else:
                 agent.state = "waiting"
                 agent.last_action = "wait:food"
@@ -589,6 +601,8 @@ class SpatialPrototypeEngine:
                 agent.state = "drinking"
                 agent.last_action = "drink"
                 self._record_event("drink", agent=agent, node=node, amount=0.22)
+                agent.current_task = None
+                agent.task_target_id = None
             else:
                 agent.state = "waiting"
                 agent.last_action = "wait:water"
@@ -604,6 +618,8 @@ class SpatialPrototypeEngine:
             agent.state = "depositing_food"
             agent.last_action = "deposit_food"
             self._record_event("deposit_food", agent=agent, node=home, amount=amount)
+            agent.current_task = None
+            agent.task_target_id = None
             return
         if agent.hunger >= HUNGER_HOME_THRESHOLD and home.stock >= HOME_MEAL_SIZE:
             home.stock = max(0.0, home.stock - HOME_MEAL_SIZE)
@@ -611,6 +627,8 @@ class SpatialPrototypeEngine:
             agent.state = "eating_at_home"
             agent.last_action = "eat_at_home"
             self._record_event("eat_at_home", agent=agent, node=home, amount=HOME_MEAL_SIZE)
+            agent.current_task = None
+            agent.task_target_id = None
             return
         agent.health = min(1.0, agent.health + 0.012)
         agent.state = "resting"
@@ -624,6 +642,9 @@ class SpatialPrototypeEngine:
             agent.last_action = "dead"
             agent.path_length = None
             agent.move_cooldown = 0
+            agent.current_task = None
+            agent.task_target_id = None
+            agent.task_started_tick = None
             return
 
         agent.hunger = min(1.0, agent.hunger + 0.032)
@@ -640,6 +661,9 @@ class SpatialPrototypeEngine:
             agent.path_length = None
             agent.move_cooldown = 0
             self._record_event("agent_died", agent=agent)
+            agent.current_task = None
+            agent.task_target_id = None
+            agent.task_started_tick = None
             return
 
         target, travel_state = self.decision_rule.choose_plan(self, agent)
