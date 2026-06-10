@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from heapq import heappop, heappush
 from typing import Any
 
@@ -167,6 +167,7 @@ class SpatialAgent:
     current_task: str | None = None
     task_target_id: str | None = None
     task_started_tick: int | None = None
+    node_memory: dict[str, Any] = field(default_factory=dict)
 
     def is_alive(self) -> bool:
         return self.health > 0
@@ -197,6 +198,18 @@ class SpatialAgent:
             "current_task": self.current_task,
             "task_target_id": self.task_target_id,
             "task_started_tick": self.task_started_tick,
+            "node_memory": {
+                node_id: {
+                    "kind": entry["kind"],
+                    "label": entry["label"],
+                    "x": entry["x"],
+                    "y": entry["y"],
+                    "last_seen_stock": round(entry["last_seen_stock"], 3),
+                    "last_seen_capacity": round(entry["last_seen_capacity"], 3),
+                    "last_seen_tick": entry["last_seen_tick"],
+                }
+                for node_id, entry in self.node_memory.items()
+            },
             "components": {
                 "needs": {
                     "hunger": round(self.hunger, 3),
@@ -479,6 +492,18 @@ class SpatialPrototypeEngine:
                 return node
         return self._node_by_kind("home", preferred_home=(agent.home_x, agent.home_y))
 
+    @staticmethod
+    def _observe_node(agent: SpatialAgent, node: SpatialNode, tick: int) -> None:
+        agent.node_memory[node.id] = {
+            "kind": node.kind,
+            "label": node.label,
+            "x": node.x,
+            "y": node.y,
+            "last_seen_stock": node.stock,
+            "last_seen_capacity": node.capacity,
+            "last_seen_tick": tick,
+        }
+
     def _tile(self, position: tuple[int, int]) -> SpatialTile:
         return self.tiles[position]
 
@@ -708,9 +733,12 @@ class SpatialPrototypeEngine:
 
         if (agent.x, agent.y) == (target.x, target.y):
             self._consume_from_node(agent, target)
-            return
+        else:
+            self._move_agent_toward(agent, target, occupied, travel_state)
 
-        self._move_agent_toward(agent, target, occupied, travel_state)
+        for node in self.nodes:
+            if (agent.x, agent.y) == (node.x, node.y):
+                self._observe_node(agent, node, self.tick)
 
     def _record_metrics(self) -> None:
         alive_agents = [agent for agent in self.agents if agent.is_alive()]
