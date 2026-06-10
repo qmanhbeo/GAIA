@@ -1685,5 +1685,91 @@ class FatigueDecisionTests(unittest.TestCase):
             "fatigue should not be a NeedSpec string key")
 
 
+class FatigueObservabilityTests(unittest.TestCase):
+    def setUp(self):
+        self.config = SimulationConfig(
+            days=5, seed=10, num_households=1, members_per_household=2,
+            grid_width=12, grid_height=10,
+        )
+        self.engine = SpatialPrototypeEngine(config=self.config)
+
+    def test_time_series_has_fatigue_metrics_after_step(self):
+        self.engine.step()
+        keys = {"avg_fatigue", "max_fatigue", "resting_count", "seeking_rest_count", "fatigued_count"}
+        self.assertTrue(keys.issubset(self.engine.time_series),
+            f"Missing keys: {keys - set(self.engine.time_series)}")
+        self.assertEqual(len(self.engine.time_series["avg_fatigue"]), 1)
+
+    def test_avg_fatigue_is_within_bounds(self):
+        for _ in range(5):
+            self.engine.step()
+        vals = self.engine.time_series["avg_fatigue"]
+        for v in vals:
+            self.assertIsInstance(v, float)
+            self.assertGreaterEqual(v, 0.0)
+            self.assertLessEqual(v, 1.0)
+
+    def test_max_fatigue_is_within_bounds(self):
+        for _ in range(5):
+            self.engine.step()
+        vals = self.engine.time_series["max_fatigue"]
+        for v in vals:
+            self.assertIsInstance(v, float)
+            self.assertGreaterEqual(v, 0.0)
+            self.assertLessEqual(v, 1.0)
+
+    def test_resting_count_nonnegative(self):
+        for _ in range(5):
+            self.engine.step()
+        vals = self.engine.time_series["resting_count"]
+        for v in vals:
+            self.assertIsInstance(v, int)
+            self.assertGreaterEqual(v, 0)
+
+    def test_seeking_rest_count_nonnegative(self):
+        for _ in range(5):
+            self.engine.step()
+        vals = self.engine.time_series["seeking_rest_count"]
+        for v in vals:
+            self.assertIsInstance(v, int)
+            self.assertGreaterEqual(v, 0)
+
+    def test_fatigued_count_matches_threshold(self):
+        phys = PhysiologyConfig(
+            hunger_increase_per_tick=0.001,
+            thirst_increase_per_tick=0.001,
+        )
+        config = SimulationConfig(
+            days=40, seed=42, num_households=1, members_per_household=2,
+            grid_width=12, grid_height=10, physiology=phys,
+        )
+        engine = SpatialPrototypeEngine(config=config)
+        threshold = config.physiology.fatigue_rest_threshold
+        for _ in range(40):
+            engine.step()
+            count = engine.time_series["fatigued_count"][-1]
+            actual = sum(1 for a in engine.agents if a.is_alive() and a.fatigue >= threshold)
+            self.assertEqual(count, actual,
+                f"tick {engine.tick}: fatigued_count {count} != actual {actual}")
+
+    def test_snapshot_metrics_include_fatigue_fields(self):
+        snapshot = self.engine.snapshot()
+        m = snapshot["metrics"]
+        for key in ("avg_fatigue", "max_fatigue", "resting_count", "seeking_rest_count", "fatigued_count"):
+            self.assertIn(key, m, f"metrics missing key: {key}")
+        self.assertIn("avg_fatigue", snapshot)
+        self.assertIn("max_fatigue", snapshot)
+
+    def test_headless_smoke_unbroken(self):
+        import subprocess
+        import sys
+        result = subprocess.run(
+            [sys.executable, "main.py", "--headless", "--days", "5",
+             "--households", "1", "--members", "2", "--grid-width", "10", "--grid-height", "8"],
+            check=True, capture_output=True, text=True,
+        )
+        self.assertIn("Ran spatial GAIA headless for 5 ticks", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

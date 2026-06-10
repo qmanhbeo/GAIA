@@ -39,6 +39,8 @@ class Panels:
             f"Avg hunger: {snapshot.get('avg_hunger', metrics.get('avg_hunger', 0.0)):.3f}",
             f"Water stock: {snapshot.get('water_stock', metrics.get('water_stock', 0.0)):.2f}",
             f"Avg thirst: {snapshot.get('avg_thirst', metrics.get('avg_thirst', 0.0)):.3f}",
+            f"Avg fatigue: {metrics.get('avg_fatigue', 0.0):.3f}",
+            f"Fatigued: {metrics.get('fatigued_count', 0)}",
             f"Moving: {metrics.get('moving_agents', 0)}",
             f"Blocked/waiting: {metrics.get('blocked_agents', 0)}",
         ]

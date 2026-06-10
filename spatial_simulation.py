@@ -251,6 +251,11 @@ class SpatialPrototypeEngine:
             "avg_health": [],
             "avg_hunger": [],
             "avg_thirst": [],
+            "avg_fatigue": [],
+            "max_fatigue": [],
+            "resting_count": [],
+            "seeking_rest_count": [],
+            "fatigued_count": [],
             "moving_agents": [],
             "blocked_agents": [],
             "food_stock": [],
@@ -801,6 +806,12 @@ class SpatialPrototypeEngine:
         self.time_series["avg_health"].append(round(sum(agent.health for agent in alive_agents) / count, 4) if count else 0.0)
         self.time_series["avg_hunger"].append(round(sum(agent.hunger for agent in alive_agents) / count, 4) if count else 0.0)
         self.time_series["avg_thirst"].append(round(sum(agent.thirst for agent in alive_agents) / count, 4) if count else 0.0)
+        self.time_series["avg_fatigue"].append(round(sum(agent.fatigue for agent in alive_agents) / count, 4) if count else 0.0)
+        self.time_series["max_fatigue"].append(round(max(agent.fatigue for agent in alive_agents), 4) if count else 0.0)
+        self.time_series["resting_count"].append(sum(1 for agent in alive_agents if agent.last_action == "rest"))
+        self.time_series["seeking_rest_count"].append(sum(1 for agent in alive_agents if agent.current_task == "seek_rest"))
+        threshold = self.config.physiology.fatigue_rest_threshold
+        self.time_series["fatigued_count"].append(sum(1 for agent in alive_agents if agent.fatigue >= threshold))
         self.time_series["moving_agents"].append(
             sum(1 for agent in alive_agents if agent.state in {"seeking_food", "carrying_food_home", "seeking_home_food", "seeking_water"})
         )
@@ -863,6 +874,11 @@ class SpatialPrototypeEngine:
             "avg_health": round(sum(agent.health for agent in alive_agents) / len(alive_agents), 4) if alive_agents else 0.0,
             "avg_hunger": round(sum(agent.hunger for agent in alive_agents) / len(alive_agents), 4) if alive_agents else 0.0,
             "avg_thirst": round(sum(agent.thirst for agent in alive_agents) / len(alive_agents), 4) if alive_agents else 0.0,
+            "avg_fatigue": round(sum(agent.fatigue for agent in alive_agents) / len(alive_agents), 4) if alive_agents else 0.0,
+            "max_fatigue": round(max(agent.fatigue for agent in alive_agents), 4) if alive_agents else 0.0,
+            "resting_count": sum(1 for agent in alive_agents if agent.last_action == "rest"),
+            "seeking_rest_count": sum(1 for agent in alive_agents if agent.current_task == "seek_rest"),
+            "fatigued_count": sum(1 for agent in alive_agents if agent.fatigue >= self.config.physiology.fatigue_rest_threshold),
             "moving_agents": sum(1 for agent in alive_agents if agent.state in {"moving", "traversing"}),
             "blocked_agents": sum(1 for agent in alive_agents if agent.state in {"blocked", "waiting"}),
             "food_stock": food_stock,
@@ -882,6 +898,8 @@ class SpatialPrototypeEngine:
             "water_stock": metrics["water_stock"],
             "avg_hunger": metrics["avg_hunger"],
             "avg_thirst": metrics["avg_thirst"],
+            "avg_fatigue": metrics["avg_fatigue"],
+            "max_fatigue": metrics["max_fatigue"],
             "tiles": tiles,
             "grid": {
                 "width": self.config.grid_width,
