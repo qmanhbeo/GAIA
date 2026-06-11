@@ -59,6 +59,7 @@ class SpatialTile:
     passable: bool
     occupancy_limit: int
     color: str
+    exposure_pressure: float = 0.01
 
     def as_dict(self, occupied: int = 0) -> dict[str, Any]:
         return {
@@ -70,6 +71,7 @@ class SpatialTile:
             "occupancy_limit": self.occupancy_limit,
             "occupied": occupied,
             "color": self.color,
+            "exposure_pressure": self.exposure_pressure,
         }
 
 
@@ -415,6 +417,12 @@ class SpatialPrototypeEngine:
                 color=base_tile.color,
             )
 
+        exposure_map = {"plain": 0.01, "road": 0.005, "brush": 0.015, "marsh": 0.02}
+        for tile in tiles.values():
+            tile.exposure_pressure = exposure_map.get(tile.kind, 0.0)
+        for home in [node for node in self.nodes if node.kind == "home"]:
+            tiles[(home.x, home.y)].exposure_pressure = 0.0
+
         return tiles
 
     def _build_home_map(self) -> dict[int, SpatialNode]:
@@ -560,7 +568,9 @@ class SpatialPrototypeEngine:
         if (agent.x, agent.y) == (home.x, home.y):
             agent.exposure = max(0.0, agent.exposure - phys.exposure_recovery_per_tick_at_home)
         else:
-            agent.exposure = min(1.0, agent.exposure + phys.exposure_increase_per_tick_away_from_home)
+            tile = self.tiles.get((agent.x, agent.y))
+            pressure = tile.exposure_pressure if tile else phys.exposure_increase_per_tick_away_from_home
+            agent.exposure = min(1.0, agent.exposure + pressure)
 
     def _tile(self, position: tuple[int, int]) -> SpatialTile:
         return self.tiles[position]
