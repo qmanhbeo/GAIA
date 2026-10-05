@@ -10,6 +10,28 @@ python main.py
 
 That command opens a Pygame window, runs the current spatial GAIA world, and renders the engine snapshot as a tile map plus numeric panels. The engine owns the simulation state; the viewer only renders snapshots and sends simple control input.
 
+```mermaid
+flowchart TD
+    A([Initialize world]) --> B{Ticks remaining?}
+    B -->|Yes| C[Advance clock and replenish resources]
+    C --> D[Update each agent]
+    D --> E[Increase hunger, thirst, fatigue, and exposure]
+    E --> F{Agent survives?}
+    F -->|No| G[Mark agent dead]
+    F -->|Yes| H[Choose a goal from current needs]
+    H --> I{At goal?}
+    I -->|No| J[Move toward target]
+    I -->|Yes| K[Eat, drink, gather, deposit, or rest]
+    G --> L{More agents?}
+    J --> L
+    K --> L
+    L -->|Yes| D
+    L -->|No| M[Record metrics and events]
+    M --> N[Capture snapshot when scheduled]
+    N --> B
+    B -->|No| O([Simulation complete])
+```
+
 ## Setup
 
 GAIA requires Python 3.10+.
